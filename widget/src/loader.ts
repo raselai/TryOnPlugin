@@ -3,8 +3,8 @@
  * Lightweight loader script (<2KB gzipped) that lazy-loads the main widget on first interaction
  */
 
-// Capture script URL at module load time (works for both classic and module scripts)
-const SCRIPT_URL = import.meta.url;
+// Capture script URL at load time (must use document.currentScript for classic/async scripts)
+const SCRIPT_URL = (document.currentScript as HTMLScriptElement)?.src || '';
 const WIDGET_SCRIPT_ID = 'tryon-widget-script';
 
 interface TryOnConfig {
