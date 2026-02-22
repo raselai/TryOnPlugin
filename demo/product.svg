@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="360" viewBox="0 0 360 360">
+  <rect width="360" height="360" fill="#f3f3f3" />
+  <path d="M110 80 L160 80 L180 110 L240 110 L260 80 L310 80 L280 160 L280 300 L140 300 L140 160 Z" fill="#222" />
+  <text x="180" y="330" font-size="18" text-anchor="middle" fill="#555">Demo Shirt</text>
+</svg>

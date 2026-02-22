@@ -1,0 +1,81 @@
+// Prisma schema for TryOnPlugin multi-tenant SaaS
+// Database: PostgreSQL (Neon serverless)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Store {
+  id               String     @id @default(cuid())
+  name             String
+  email            String     @unique
+  domain           String
+  allowedDomains   String[]
+  planId           String     @default("free")
+  stripeCustomerId String?
+  monthlyQuota     Int        @default(100)
+  usedQuota        Int        @default(0)
+  quotaResetAt     DateTime   @default(now())
+  status           String     @default("active") // active, suspended, cancelled
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  apiKeys          ApiKey[]
+  usageLogs        UsageLog[]
+
+  @@index([email])
+  @@index([stripeCustomerId])
+  @@index([status])
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  storeId    String
+  store      Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  keyHash    String    @unique
+  keyPrefix  String    // First 12 chars for display: "tryon_live_xxxx..."
+  name       String    @default("Default")
+  isActive   Boolean   @default(true)
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([storeId])
+  @@index([keyHash])
+}
+
+model UsageLog {
+  id            String   @id @default(cuid())
+  storeId       String
+  store         Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  eventType     String   // tryon, classify
+  status        String   // success, error, quota_exceeded, rate_limited
+  processingMs  Int?
+  errorCode     String?
+  billingPeriod String   // YYYY-MM format
+  metadata      Json?    // Additional context (product category, etc.)
+  createdAt     DateTime @default(now())
+
+  @@index([storeId])
+  @@index([billingPeriod])
+  @@index([createdAt])
+  @@index([storeId, billingPeriod])
+}
+
+// Plan configuration (could be in code, but useful for reference)
+model Plan {
+  id              String @id
+  name            String
+  priceMonthly    Int    // cents
+  monthlyQuota    Int
+  requestsPerMin  Int
+  dailyLimit      Int
+  overagePrice    Int    // cents per overage request
+  stripePriceId   String?
+
+  @@map("plans")
+}
