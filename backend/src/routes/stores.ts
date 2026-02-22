@@ -1,8 +1,8 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { prisma, PLANS, type PlanId } from "../db";
-import { generateApiKey, hashApiKey } from "../middleware/auth";
-import { getUsageStats, getDailyUsage } from "../services/usage";
-import type { AuthenticatedRequest } from "../types";
+import { prisma, PLANS, type PlanId } from "../db.js";
+import { generateApiKey, hashApiKey } from "../middleware/auth.js";
+import { getUsageStats, getDailyUsage } from "../services/usage.js";
+import type { AuthenticatedRequest } from "../types.js";
 
 interface CreateStoreBody {
   name: string;

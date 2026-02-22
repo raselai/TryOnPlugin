@@ -1,11 +1,11 @@
 import Stripe from "stripe";
-import { prisma, getPlan, PLANS, type PlanId } from "../db";
-import { getBillableUsage, getStoresWithOverage } from "./usage";
+import { prisma, getPlan, PLANS, type PlanId } from "../db.js";
+import { getBillableUsage, getStoresWithOverage } from "./usage.js";
 
 // Initialize Stripe client
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 export const stripe = stripeSecretKey
-  ? new Stripe(stripeSecretKey, { apiVersion: "2024-12-18.acacia" })
+  ? new Stripe(stripeSecretKey)
   : null;
 
 // Stripe price IDs (configured in Stripe dashboard)

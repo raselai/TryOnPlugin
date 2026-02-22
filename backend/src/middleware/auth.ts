@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import type { FastifyRequest, FastifyReply, FastifyInstance } from "fastify";
-import { prisma, getPlan } from "../db";
-import type { AuthenticatedRequest, ApiError } from "../types";
+import { prisma, getPlan } from "../db.js";
+import type { AuthenticatedRequest, ApiError } from "../types.js";
 
 const API_KEY_HEADER = "x-tryon-api-key";
 const API_KEY_PREFIX = "tryon_live_";

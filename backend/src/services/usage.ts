@@ -1,5 +1,5 @@
-import { prisma, getCurrentBillingPeriod, shouldResetQuota, getNextQuotaResetDate } from "../db";
-import type { UsageEventType, UsageStatus, RequestMetadata } from "../types";
+import { prisma, getCurrentBillingPeriod, shouldResetQuota, getNextQuotaResetDate } from "../db.js";
+import type { UsageEventType, UsageStatus, RequestMetadata } from "../types.js";
 import type { Store } from "@prisma/client";
 
 /**

@@ -3,15 +3,15 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import { GoogleGenAI } from "@google/genai";
-import { withRetry } from "./utils/retry";
-import { prisma } from "./db";
-import { authenticate, validateOrigin } from "./middleware/auth";
-import { tenantRateLimit, checkMonthlyQuota } from "./middleware/rateLimit";
-import { logUsage, incrementQuota } from "./services/usage";
-import { registerBillingRoutes } from "./routes/billing";
-import { registerWebhookRoutes, rawBodyPlugin } from "./routes/webhooks";
-import { registerStoreRoutes } from "./routes/stores";
-import type { AuthenticatedRequest } from "./types";
+import { withRetry } from "./utils/retry.js";
+import { prisma } from "./db.js";
+import { authenticate, validateOrigin } from "./middleware/auth.js";
+import { tenantRateLimit, checkMonthlyQuota } from "./middleware/rateLimit.js";
+import { logUsage, incrementQuota } from "./services/usage.js";
+import { registerBillingRoutes } from "./routes/billing.js";
+import { registerWebhookRoutes, rawBodyPlugin } from "./routes/webhooks.js";
+import { registerStoreRoutes } from "./routes/stores.js";
+import type { AuthenticatedRequest } from "./types.js";
 
 const PORT = Number(process.env.PORT || 8787);
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
@@ -450,7 +450,17 @@ const shutdown = async () => {
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 
-// Start server
-app.listen({ port: PORT, host: "0.0.0.0" }).then(() => {
-  app.log.info(`Server running on port ${PORT}`);
-});
+// Prepare Fastify for incoming requests
+await app.ready();
+
+// Vercel serverless handler
+export default async function handler(req: any, res: any) {
+  app.server.emit("request", req, res);
+}
+
+// Start local server when not on Vercel
+if (!process.env.VERCEL) {
+  app.listen({ port: PORT, host: "0.0.0.0" }).then(() => {
+    app.log.info(`Server running on port ${PORT}`);
+  });
+}

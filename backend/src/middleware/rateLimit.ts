@@ -1,6 +1,6 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
-import { getPlan } from "../db";
-import type { AuthenticatedRequest, RateLimitInfo } from "../types";
+import { getPlan } from "../db.js";
+import type { AuthenticatedRequest, RateLimitInfo } from "../types.js";
 
 // Try to import Vercel KV, fallback to in-memory for local dev
 let kv: any = null;
@@ -37,7 +37,7 @@ async function getRateLimit(
   if (kv) {
     // Use Vercel KV (Redis)
     try {
-      const data = await kv.get<{ count: number; resetAt: number }>(key);
+      const data = (await kv.get(key)) as { count: number; resetAt: number } | null;
       if (data && data.resetAt > now) {
         return data;
       }
@@ -91,7 +91,7 @@ async function getDailyUsage(storeId: string): Promise<number> {
 
   if (kv) {
     try {
-      const count = await kv.get<number>(key);
+      const count = (await kv.get(key)) as number | null;
       return count || 0;
     } catch {
       return 0;
@@ -114,7 +114,7 @@ async function incrementDailyUsage(storeId: string): Promise<number> {
 
   if (kv) {
     try {
-      const current = (await kv.get<number>(key)) || 0;
+      const current = ((await kv.get(key)) as number | null) || 0;
       const newCount = current + 1;
       await kv.set(key, newCount, { ex: ttlSeconds });
       return newCount;

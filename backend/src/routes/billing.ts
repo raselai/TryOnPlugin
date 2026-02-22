@@ -1,11 +1,11 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { prisma, PLANS, type PlanId } from "../db";
+import { prisma, PLANS, type PlanId } from "../db.js";
 import {
   createCheckoutSession,
   createPortalSession,
   getSubscriptionStatus,
-} from "../services/billing";
-import type { AuthenticatedRequest } from "../types";
+} from "../services/billing.js";
+import type { AuthenticatedRequest } from "../types.js";
 
 interface CheckoutBody {
   planId: string;

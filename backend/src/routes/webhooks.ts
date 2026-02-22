@@ -6,7 +6,7 @@ import {
   handleSubscriptionUpdate,
   handleSubscriptionDeleted,
   handlePaymentFailed,
-} from "../services/billing";
+} from "../services/billing.js";
 
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 
