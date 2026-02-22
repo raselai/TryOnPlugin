@@ -7,11 +7,11 @@ export function renderConsent(container: HTMLElement): void {
 
   container.innerHTML = `
     <div class="consent-content">
-      <div class="consent-icon">&#128247;</div>
-      <h3 class="consent-title">Photo Permission Required</h3>
+      <div class="consent-icon">&#128135;</div>
+      <h3 class="consent-title">Photo Permission</h3>
       <p class="consent-text">
-        To create your virtual try-on, we need to process your photo.
-        Your photo is only used for this try-on and is not stored.
+        To show you how our hair extensions will look, we need to process your photo.
+        Your photo is used only for this try-on and is not stored.
       </p>
       <p class="consent-text">
         <a href="${escapeAttr(privacyUrl)}" target="_blank" rel="noopener" class="consent-link">

@@ -3,11 +3,161 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>TryOn Widget Dev</title>
+    <title>Muse Hair Pro – Virtual Try-On Demo</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        padding: 24px;
+        max-width: 960px;
+        margin: 0 auto;
+        background: #faf6f5;
+        color: #3d2b2b;
+      }
+      h1 { margin-bottom: 4px; }
+      .subtitle { color: #6b5454; margin-bottom: 32px; }
+      .hero {
+        background: #fff;
+        border: 1px solid #e8ddd9;
+        border-radius: 16px;
+        padding: 32px;
+        text-align: center;
+        margin-bottom: 32px;
+      }
+      .hero h2 { font-size: 22px; margin: 0 0 8px; }
+      .hero p { color: #6b5454; margin: 0 0 24px; font-size: 15px; }
+      .try-on-btn {
+        padding: 14px 32px;
+        border-radius: 10px;
+        border: none;
+        background: #9b6b6b;
+        color: #fff;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      .try-on-btn:hover { background: #7d5555; }
+      .shade-preview {
+        display: flex; gap: 12px; justify-content: center;
+        margin-bottom: 24px; flex-wrap: wrap;
+      }
+      .shade-dot {
+        width: 32px; height: 32px; border-radius: 50%;
+        border: 2px solid #e8ddd9;
+      }
+      .info-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        gap: 16px; margin-bottom: 32px;
+      }
+      .info-card {
+        background: #fff; border: 1px solid #e8ddd9;
+        border-radius: 12px; padding: 20px;
+      }
+      .info-card h3 { margin: 0 0 8px; font-size: 15px; }
+      .info-card p { margin: 0; color: #6b5454; font-size: 14px; line-height: 1.5; }
+      .event-log {
+        margin-top: 32px; padding: 16px;
+        background: #fff; border: 1px solid #e8ddd9; border-radius: 8px;
+      }
+      .event-log h3 { margin: 0 0 12px; font-size: 14px; color: #6b5454; }
+      .event-log pre {
+        background: #f5f0ee; padding: 12px; border-radius: 4px;
+        overflow-x: auto; font-size: 12px; max-height: 200px; overflow-y: auto;
+      }
+      .test-conflict * { color: red !important; font-family: 'Comic Sans MS' !important; }
+    </style>
   </head>
   <body>
-    <h1>Widget Development</h1>
-    <p>For demo, open: <a href="../demo/index.html">demo/index.html</a></p>
-    <script type="module" src="/src/loader.ts"></script>
+    <h1>Muse Hair Pro</h1>
+    <p class="subtitle">See how our hair extensions look on you before you buy</p>
+
+    <div class="hero">
+      <h2>Virtual Hair Extension Try-On</h2>
+      <p>Upload a photo or use your camera to see how our extensions look on you. Choose your shade, length, and texture.</p>
+      <div class="shade-preview">
+        <div class="shade-dot" style="background: #0a0a0a;" title="Jet Black"></div>
+        <div class="shade-dot" style="background: #2c1b0e;" title="Dark Brown"></div>
+        <div class="shade-dot" style="background: #4a2912;" title="Chocolate Brown"></div>
+        <div class="shade-dot" style="background: #6b3a1f;" title="Chestnut Brown"></div>
+        <div class="shade-dot" style="background: #8b6914;" title="Honey Blonde"></div>
+        <div class="shade-dot" style="background: #d4a843;" title="Golden Blonde"></div>
+        <div class="shade-dot" style="background: #e8c87a;" title="Platinum Blonde"></div>
+        <div class="shade-dot" style="background: #a13d2d;" title="Auburn"></div>
+        <div class="shade-dot" style="background: #c14a2a;" title="Copper Red"></div>
+        <div class="shade-dot" style="background: #8b4a6b;" title="Rose Gold"></div>
+        <div class="shade-dot" style="background: #c0c0c0;" title="Silver"></div>
+        <div class="shade-dot" style="background: #5a1a2a;" title="Burgundy"></div>
+      </div>
+      <button class="try-on-btn" id="open-tryon">Try On Hair Extensions</button>
+    </div>
+
+    <div class="info-cards">
+      <div class="info-card">
+        <h3>12 Shades</h3>
+        <p>From Jet Black to Platinum Blonde, find the perfect match for your look.</p>
+      </div>
+      <div class="info-card">
+        <h3>4 Lengths</h3>
+        <p>14" to 26" — shoulder-length to below-waist, choose what suits your style.</p>
+      </div>
+      <div class="info-card">
+        <h3>3 Textures</h3>
+        <p>Straight, Wavy, or Curly — see how each texture blends with your hair.</p>
+      </div>
+    </div>
+
+    <!-- Shadow DOM isolation stress test -->
+    <div class="test-conflict">
+      <p>This text has conflicting styles (red, Comic Sans). Widget should NOT be affected.</p>
+    </div>
+
+    <!-- Event Log for debugging -->
+    <div class="event-log">
+      <h3>Event Log (for testing)</h3>
+      <pre id="event-log">Waiting for events...</pre>
+    </div>
+
+    <!-- TryOn Widget Loader (Vite dev mode) -->
+    <script type="module" src="/src/loader.ts"
+      data-tryon-api="http://localhost:8787"
+      data-tryon-privacy="https://example.com/privacy"
+    ></script>
+
+    <script type="module">
+      // Wait for loader to set up TryOnWidget
+      setTimeout(() => {
+        document.getElementById('open-tryon').addEventListener('click', () => {
+          if (window.TryOnWidget) {
+            window.TryOnWidget.open();
+          } else if (window.TryOn) {
+            window.TryOn.open();
+          } else {
+            console.warn('Widget not loaded yet');
+          }
+        });
+      }, 100);
+
+      // Listen for TryOn events
+      const logEl = document.getElementById('event-log');
+      const events = [];
+
+      function logEvent(name, detail) {
+        events.unshift({ name, detail, time: new Date().toLocaleTimeString() });
+        if (events.length > 10) events.pop();
+        logEl.textContent = events.map(e =>
+          `[${e.time}] ${e.name}: ${JSON.stringify(e.detail)}`
+        ).join('\n');
+      }
+
+      document.addEventListener('tryon:open', (e) => logEvent('tryon:open', e.detail));
+      document.addEventListener('tryon:close', (e) => logEvent('tryon:close', e.detail));
+      document.addEventListener('tryon:resultReady', (e) => logEvent('tryon:resultReady', e.detail));
+      document.addEventListener('tryon:addToCart', (e) => {
+        logEvent('tryon:addToCart', e.detail);
+        alert('Added to cart: ' + JSON.stringify(e.detail));
+      });
+    </script>
   </body>
 </html>

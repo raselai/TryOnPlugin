@@ -3,9 +3,8 @@ import { dispatchTryOnEvent } from './events';
 import { setConfig, WidgetConfig } from './config';
 
 export interface TryOnAPI {
-  open(options?: { productImage?: string; productId?: string }): void;
+  open(options?: { productId?: string }): void;
   close(): void;
-  setProduct(imageUrl: string, productId?: string): void;
   _init(config: Partial<WidgetConfig>): void;
   _ready: boolean;
 }
@@ -15,25 +14,14 @@ export function createAPI(): TryOnAPI {
     _ready: true,
 
     open(options) {
-      const productImage = options?.productImage || getState().productImageUrl;
       const productId = options?.productId || getState().productId;
-
-      if (!productImage) {
-        console.warn('[TryOn] No product image specified');
-        return;
-      }
-
-      openWidget(productImage, productId);
-      dispatchTryOnEvent('tryon:open', { productImageUrl: productImage, productId });
+      openWidget(productId);
+      dispatchTryOnEvent('tryon:open', { productId });
     },
 
     close() {
       closeWidget();
       dispatchTryOnEvent('tryon:close');
-    },
-
-    setProduct(imageUrl, productId) {
-      setState({ productImageUrl: imageUrl, productId });
     },
 
     _init(config) {

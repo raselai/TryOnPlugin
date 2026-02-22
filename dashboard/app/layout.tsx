@@ -5,8 +5,8 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "TryOn Plugin - Virtual Try-On for eCommerce",
-  description: "Add AI-powered virtual try-on to your online store in minutes",
+  title: "Muse Hair Pro Admin - Hair Extension Try-On",
+  description: "Admin dashboard for managing Muse Hair Pro virtual try-on catalog",
 };
 
 export default function RootLayout({

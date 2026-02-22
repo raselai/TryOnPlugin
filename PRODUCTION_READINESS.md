@@ -1,98 +1,141 @@
-# TryOnPlugin Production Readiness - Implementation Complete
+# Muse Hair Pro Virtual Try-On — Production Readiness
 
 ## Overview
 
-The TryOnPlugin has been transformed from a working prototype into a commercial SaaS product with:
-- Generic embed code for any eCommerce platform
-- Multi-tenant API with per-store authentication
-- Usage-based billing via Stripe
-- Self-serve dashboard for store owners
+The TryOnPlugin is being pivoted from a generic multi-tenant SaaS to a dedicated hair extension virtual try-on tool for Muse Hair Pro's Shopify store, powered by Google Gemini AI.
 
 ---
 
-## What Was Implemented
+## What to Remove (from previous multi-tenant architecture)
 
-### Phase 1: Security & Multi-Tenancy Foundation
-
-| Component | File | Description |
-|-----------|------|-------------|
-| Database Schema | `backend/prisma/schema.prisma` | Store, ApiKey, UsageLog, Plan models |
-| Prisma Client | `backend/src/db.ts` | Database client with plan configs |
-| Auth Middleware | `backend/src/middleware/auth.ts` | API key validation (SHA-256 hashed) |
-| CORS Validation | `backend/src/middleware/auth.ts` | Per-store domain allowlist |
-| Type Definitions | `backend/src/types.ts` | TypeScript types for all entities |
-
-### Phase 2: Rate Limiting & Usage Tracking
-
-| Component | File | Description |
-|-----------|------|-------------|
-| Rate Limiter | `backend/src/middleware/rateLimit.ts` | Per-tenant limits with Vercel KV |
-| Usage Service | `backend/src/services/usage.ts` | Request logging and quota tracking |
-
-**Rate Limits by Plan:**
-| Plan | Requests/Min | Daily Limit | Monthly Quota |
-|------|-------------|-------------|---------------|
-| Free | 5 | 100 | 100 |
-| Starter | 20 | 1,000 | 1,000 |
-| Growth | 60 | 10,000 | 10,000 |
-
-### Phase 3: Billing Integration
-
-| Component | File | Description |
-|-----------|------|-------------|
-| Billing Service | `backend/src/services/billing.ts` | Stripe integration |
-| Billing Routes | `backend/src/routes/billing.ts` | Checkout, portal, subscription endpoints |
-| Webhook Handlers | `backend/src/routes/webhooks.ts` | Subscription lifecycle events |
-| Store Routes | `backend/src/routes/stores.ts` | Signup, API keys, usage stats |
-
-### Phase 4: Dashboard Application
-
-| Page | File | Description |
-|------|------|-------------|
-| Landing | `dashboard/app/page.tsx` | Marketing page with pricing |
-| Signup | `dashboard/app/signup/page.tsx` | Store registration + API key |
-| Dashboard | `dashboard/app/dashboard/page.tsx` | Usage stats, API keys, embed code |
-| Settings | `dashboard/app/settings/page.tsx` | Domain config, plan upgrades |
-
-### Phase 5: Production Deployment
-
-| Component | File | Description |
-|-----------|------|-------------|
-| Backend Config | `backend/vercel.json` | Serverless functions (120s timeout) |
-| Widget Config | `widget/vercel.json` | CDN with cache headers |
-| Dashboard Config | `dashboard/vercel.json` | Next.js deployment |
-| Environment | `backend/.env.example` | All required variables |
-| DB Seed | `backend/prisma/seed.ts` | Plan data seeding |
-
-### Widget Updates
-
-| Component | File | Description |
-|-----------|------|-------------|
-| Config | `widget/src/config.ts` | Added apiKey field |
-| Loader | `widget/src/loader.ts` | Parses data-tryon-api-key |
-| API Service | `widget/src/services/api.ts` | Sends x-tryon-api-key header |
+| Component | Files | Reason |
+|-----------|-------|--------|
+| Multi-tenant auth | `backend/src/middleware/auth.ts` | No per-store API keys; single-store tool |
+| Stripe billing | `backend/src/services/billing.ts`, `backend/src/routes/billing.ts` | No billing; built for one client |
+| Stripe webhooks | `backend/src/routes/webhooks.ts` | No subscription lifecycle |
+| Store management routes | `backend/src/routes/stores.ts` | No store signup or management |
+| Rate limiting per tenant | `backend/src/middleware/rateLimit.ts` | No multi-tenant rate limits |
+| Store/ApiKey/Plan DB models | `backend/prisma/schema.prisma` | Replace with Shade/Length/Texture models |
+| Usage tracking service | `backend/src/services/usage.ts` | No per-store usage quotas |
+| Widget API key parsing | `widget/src/loader.ts`, `widget/src/config.ts` | No API key needed; single backend |
 
 ---
 
-## Project Structure
+## What to Add
+
+### New Database Schema (Prisma)
+
+```prisma
+model Shade {
+  id            String   @id @default(cuid())
+  name          String   // e.g., "Jet Black", "Honey Blonde"
+  hexColor      String   // e.g., "#1B1B1B"
+  displayOrder  Int      @default(0)
+  shopifyVariantId String? // Maps to Shopify variant
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Length {
+  id            String   @id @default(cuid())
+  label         String   // e.g., "14 inches"
+  inches        Int      // e.g., 14
+  bodyLandmark  String   // e.g., "shoulders", "mid-back", "waist"
+  displayOrder  Int      @default(0)
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Texture {
+  id            String   @id @default(cuid())
+  name          String   // e.g., "Straight", "Wavy", "Curly"
+  displayOrder  Int      @default(0)
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model AdminUser {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  createdAt     DateTime @default(now())
+}
+```
+
+### New API Endpoints
+
+#### Public Endpoints (Widget)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Health check |
+| GET | `/api/shades` | List active shades (ordered) |
+| GET | `/api/lengths` | List active lengths (ordered) |
+| GET | `/api/textures` | List active textures (ordered) |
+| POST | `/api/tryon` | Generate hair extension try-on image |
+
+#### Admin Endpoints (Dashboard — requires ADMIN_SECRET)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/admin/login` | Verify admin secret |
+| GET | `/api/admin/shades` | List all shades (including inactive) |
+| POST | `/api/admin/shades` | Create shade |
+| PUT | `/api/admin/shades/:id` | Update shade |
+| DELETE | `/api/admin/shades/:id` | Delete shade |
+| GET | `/api/admin/lengths` | List all lengths |
+| POST | `/api/admin/lengths` | Create length |
+| PUT | `/api/admin/lengths/:id` | Update length |
+| DELETE | `/api/admin/lengths/:id` | Delete length |
+| GET | `/api/admin/textures` | List all textures |
+| POST | `/api/admin/textures` | Create texture |
+| PUT | `/api/admin/textures/:id` | Update texture |
+| DELETE | `/api/admin/textures/:id` | Delete texture |
+
+### New Backend Services
+
+| Service | File | Description |
+|---------|------|-------------|
+| Gemini Hair Service | `backend/src/services/gemini.ts` | Hair extension-specific prompt generation + Gemini API call |
+| Photo Service | `backend/src/services/photo.ts` | Photo validation and processing |
+| Catalog Service | `backend/src/services/catalog.ts` | Shade/Length/Texture CRUD operations |
+| Admin Auth Middleware | `backend/src/middleware/adminAuth.ts` | Verify ADMIN_SECRET header |
+
+### New Widget Components
+
+| Component | File | Description |
+|-----------|------|-------------|
+| Camera Capture | `widget/src/components/camera/` | WebRTC camera with preview + snapshot |
+| Shade Picker | `widget/src/components/selectors/shade.ts` | Color swatch grid |
+| Length Selector | `widget/src/components/selectors/length.ts` | Length option buttons |
+| Texture Toggle | `widget/src/components/selectors/texture.ts` | Texture toggle buttons |
+| Before/After | `widget/src/components/result/beforeAfter.ts` | Slider or toggle comparison |
+| Actions | `widget/src/components/actions/` | Download, share, add-to-cart buttons |
+| Shopify Bridge | `widget/src/services/shopify.ts` | Cart API integration |
+
+---
+
+## Project Structure (Updated)
 
 ```
 TryOnPlugin/
 ├── backend/                    # Fastify API server
 │   ├── prisma/
-│   │   ├── schema.prisma      # Database schema
-│   │   └── seed.ts            # Plan seeding script
+│   │   ├── schema.prisma      # Shade, Length, Texture, AdminUser models
+│   │   └── seed.ts            # Shade catalog seeding
 │   ├── src/
 │   │   ├── middleware/
-│   │   │   ├── auth.ts        # API key authentication
-│   │   │   └── rateLimit.ts   # Per-tenant rate limiting
+│   │   │   └── adminAuth.ts   # Admin secret authentication
 │   │   ├── routes/
-│   │   │   ├── billing.ts     # Billing endpoints
-│   │   │   ├── stores.ts      # Store management
-│   │   │   └── webhooks.ts    # Stripe webhooks
+│   │   │   ├── tryon.ts       # POST /api/tryon
+│   │   │   ├── catalog.ts     # GET shades, lengths, textures
+│   │   │   └── admin.ts       # Admin CRUD endpoints
 │   │   ├── services/
-│   │   │   ├── billing.ts     # Stripe service
-│   │   │   └── usage.ts       # Usage tracking
+│   │   │   ├── gemini.ts      # Hair extension Gemini service
+│   │   │   ├── photo.ts       # Photo processing
+│   │   │   └── catalog.ts     # DB operations for catalog
 │   │   ├── db.ts              # Prisma client
 │   │   ├── server.ts          # Main server
 │   │   └── types.ts           # TypeScript types
@@ -102,133 +145,119 @@ TryOnPlugin/
 │
 ├── dashboard/                  # Next.js admin dashboard
 │   ├── app/
-│   │   ├── page.tsx           # Landing page
-│   │   ├── signup/page.tsx    # Registration
-│   │   ├── dashboard/page.tsx # Main dashboard
-│   │   └── settings/page.tsx  # Store settings
+│   │   ├── page.tsx           # Admin login
+│   │   ├── shades/page.tsx    # Shade catalog management
+│   │   ├── lengths/page.tsx   # Length management
+│   │   └── textures/page.tsx  # Texture management
 │   ├── lib/
 │   │   ├── api.ts             # API client
 │   │   └── utils.ts           # Utilities
-│   ├── .env.example
-│   ├── package.json
-│   └── vercel.json
+│   └── package.json
 │
-├── widget/                     # Embeddable widget
+├── widget/                     # Embeddable Shopify widget
 │   ├── src/
-│   │   ├── loader.ts          # Async loader (with API key)
-│   │   ├── config.ts          # Widget config
-│   │   └── services/api.ts    # Backend client
-│   ├── package.json
-│   └── vercel.json
+│   │   ├── loader.ts          # Async loader (<2KB)
+│   │   ├── core/
+│   │   │   ├── widget.ts      # Widget orchestrator
+│   │   │   ├── state.ts       # Reactive state
+│   │   │   └── config.ts      # Config parsing
+│   │   ├── components/
+│   │   │   ├── modal/         # Shadow DOM modal
+│   │   │   ├── camera/        # WebRTC capture
+│   │   │   ├── upload/        # File upload
+│   │   │   ├── selectors/     # Shade, length, texture
+│   │   │   ├── result/        # Before/after display
+│   │   │   └── actions/       # Download, share, cart
+│   │   ├── services/
+│   │   │   ├── api.ts         # Backend client
+│   │   │   └── shopify.ts     # Shopify Cart API
+│   │   └── styles/
+│   │       └── base.css       # Brand styles
+│   └── package.json
 │
-└── demo/                       # Demo page
+└── demo/                       # Demo/test page
 ```
 
 ---
 
-## Next Steps
+## Environment Variables
 
-### 1. Set Up Database (Neon PostgreSQL)
-
-1. Go to [neon.tech](https://neon.tech) and create a free account
-2. Create a new project
-3. Copy the connection strings to your `.env`:
-
-```bash
-cd backend
-cp .env.example .env
-# Edit .env with your Neon connection strings:
-# DATABASE_URL=postgresql://...?sslmode=require
-# DIRECT_URL=postgresql://...?sslmode=require
-```
-
-4. Push the schema and seed the database:
-
-```bash
-npm install
-npx prisma db push
-npm run db:seed
-```
-
-### 2. Set Up Stripe
-
-1. Go to [Stripe Dashboard](https://dashboard.stripe.com)
-2. Create products and prices:
-
-| Product | Price | Price ID |
-|---------|-------|----------|
-| Starter | $29/month | Copy to STRIPE_STARTER_PRICE_ID |
-| Growth | $99/month | Copy to STRIPE_GROWTH_PRICE_ID |
-
-3. For overage billing, create metered prices:
-   - Starter Overage: $0.05 per unit
-   - Growth Overage: $0.03 per unit
-
-4. Get your API keys from Stripe Dashboard > Developers > API keys
-
-5. Set up webhook endpoint:
-   - URL: `https://your-backend.vercel.app/api/webhooks/stripe`
-   - Events: `checkout.session.completed`, `customer.subscription.*`, `invoice.*`
-
-### 3. Deploy to Vercel
-
-**Option A: Deploy as Monorepo (Recommended)**
-
-1. Push code to GitHub
-2. In Vercel, import the repository 3 times:
-   - Backend: Root directory = `backend`
-   - Dashboard: Root directory = `dashboard`
-   - Widget: Root directory = `widget`
-
-**Option B: Deploy Individually**
-
-```bash
-# Deploy backend
-cd backend
-vercel
-
-# Deploy dashboard
-cd ../dashboard
-vercel
-
-# Deploy widget (for CDN)
-cd ../widget
-vercel
-```
-
-### 4. Configure Environment Variables
-
-**Backend (Vercel Dashboard > Settings > Environment Variables):**
+### Backend
 
 ```
 DATABASE_URL=postgresql://...
 DIRECT_URL=postgresql://...
-GEMINI_API_KEY=your_key
-STRIPE_SECRET_KEY=sk_live_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-STRIPE_STARTER_PRICE_ID=price_...
-STRIPE_GROWTH_PRICE_ID=price_...
-CDN_URL=https://your-widget.vercel.app
+GEMINI_API_KEY=your_gemini_api_key
+ADMIN_SECRET=your_admin_secret
+SHOPIFY_STORE_URL=https://musehairpro.myshopify.com
+CDN_URL=https://your-widget-cdn.vercel.app
 ```
 
-**Dashboard:**
+### Dashboard
 
 ```
 NEXT_PUBLIC_API_URL=https://your-backend.vercel.app
-NEXT_PUBLIC_CDN_URL=https://your-widget.vercel.app
+NEXT_PUBLIC_ADMIN_SECRET=your_admin_secret
 ```
 
-### 5. Set Up Vercel KV (Optional - for Production Rate Limiting)
+### Widget
 
-1. In Vercel Dashboard > Storage > Create KV Database
-2. Connect to your backend project
-3. Environment variables will be added automatically
+```
+# Configured via script tag data attributes:
+# data-tryon-api="https://your-backend.vercel.app"
+```
 
-### 6. Custom Domain Setup
+---
 
-1. Backend API: `api.tryonplugin.com`
-2. Dashboard: `app.tryonplugin.com` or `tryonplugin.com`
-3. Widget CDN: `cdn.tryonplugin.com`
+## Verification Checklist
+
+### Hair Extension Try-On Quality
+- [ ] Extensions look realistic and blend naturally with existing hair
+- [ ] Each shade produces visually accurate color matching swatches
+- [ ] Results are consistent across 4+ diverse skin tones
+- [ ] Length differences are clearly visible (14" vs 26")
+- [ ] Texture differences are clearly visible (straight vs wavy vs curly)
+- [ ] Extensions don't look like wigs (natural root blending)
+
+### Selectors
+- [ ] Shade swatches load from API with correct colors and names
+- [ ] Length options are selectable and clearly labeled
+- [ ] Texture toggle works with visual feedback
+- [ ] Selections persist across the session
+- [ ] Touch-friendly sizing on mobile
+
+### Before/After + Actions
+- [ ] Before/after comparison view works (slider or toggle)
+- [ ] Download saves high-quality image to device
+- [ ] Share with stylist generates working link or email
+- [ ] "Try Another Shade" reuses photo without re-upload
+
+### Shopify Cart Integration
+- [ ] Add to Cart adds correct variant to Shopify cart
+- [ ] Shade + length + texture correctly maps to variant ID
+- [ ] Cart UI updates after adding (cart count, drawer)
+- [ ] Works with Muse Hair Pro's specific Shopify theme
+
+### Camera + Upload
+- [ ] Camera capture works on iOS Safari and Android Chrome
+- [ ] Camera permission denied shows upload fallback
+- [ ] File upload works with drag-and-drop and file picker
+- [ ] 10MB photos compress to <1MB
+- [ ] Consent shown before first upload
+
+### Admin Dashboard
+- [ ] Admin can log in with ADMIN_SECRET
+- [ ] Admin can create, edit, delete shades with color preview
+- [ ] Admin can manage lengths and textures
+- [ ] Changes immediately reflected in widget
+
+### Production
+- [ ] Widget loads on Muse Hair Pro's Shopify store without errors
+- [ ] Loader <2KB gzipped; core <50KB gzipped
+- [ ] Modal appears above all Shopify theme elements
+- [ ] No CSS leaks between widget and theme
+- [ ] Photos deleted after Gemini processing (no permanent storage)
+- [ ] Works on mobile Safari, Chrome; desktop Chrome, Firefox, Safari
 
 ---
 
@@ -239,9 +268,10 @@ NEXT_PUBLIC_CDN_URL=https://your-widget.vercel.app
 ```bash
 cd backend
 cp .env.example .env
-# Fill in .env with your values
+# Fill in: DATABASE_URL, GEMINI_API_KEY, ADMIN_SECRET
 npm install
 npx prisma db push
+npm run db:seed
 npm run dev
 # Server runs on http://localhost:8787
 ```
@@ -251,6 +281,7 @@ npm run dev
 ```bash
 cd dashboard
 cp .env.example .env.local
+# Fill in: NEXT_PUBLIC_API_URL, NEXT_PUBLIC_ADMIN_SECRET
 npm install
 npm run dev
 # Dashboard runs on http://localhost:3000
@@ -265,105 +296,18 @@ npm run dev
 # Widget dev server on http://localhost:5173
 ```
 
-### Demo
+---
 
-```bash
-cd demo
-# Open index.html in browser
-# Or use a local server
-npx serve .
-```
+## Deployment (Vercel)
+
+1. Push code to GitHub.
+2. Import repository in Vercel 3 times:
+   - **Backend:** Root directory = `backend`
+   - **Dashboard:** Root directory = `dashboard`
+   - **Widget:** Root directory = `widget`
+3. Set environment variables for each deployment.
+4. Add widget script tag to Muse Hair Pro's Shopify theme.
 
 ---
 
-## API Endpoints Reference
-
-### Public Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/health` | Health check |
-| GET | `/api/billing/plans` | List available plans |
-| POST | `/api/stores` | Create new store (signup) |
-
-### Protected Endpoints (require `x-tryon-api-key` header)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/tryon` | Generate try-on image |
-| POST | `/api/classify` | Classify product image |
-| GET | `/api/stores/me` | Get store info |
-| PATCH | `/api/stores/me` | Update store settings |
-| GET | `/api/stores/me/api-keys` | List API keys |
-| POST | `/api/stores/me/api-keys` | Create new API key |
-| DELETE | `/api/stores/me/api-keys/:id` | Revoke API key |
-| GET | `/api/stores/me/usage` | Get usage statistics |
-| GET | `/api/stores/me/embed-code` | Get embed code |
-| GET | `/api/billing/subscription` | Get subscription status |
-| GET | `/api/billing/usage` | Get billing usage |
-| POST | `/api/billing/checkout` | Create checkout session |
-| POST | `/api/billing/portal` | Create billing portal session |
-
-### Webhook Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/webhooks/stripe` | Stripe webhook handler |
-
----
-
-## Embed Code for Store Owners
-
-After signup, store owners receive this embed code:
-
-```html
-<!-- TryOn Plugin -->
-<script
-  src="https://cdn.tryonplugin.com/v1/loader.js"
-  data-tryon-api-key="tryon_live_xxxxxxxxxxxx"
-  async
-></script>
-
-<!-- Add to any product image button -->
-<button data-tryon-image="https://yourstore.com/product.jpg">
-  Try this on
-</button>
-```
-
----
-
-## Verification Checklist
-
-### Security
-- [x] API requests rejected without valid key
-- [x] Requests from unauthorized domains rejected
-- [x] Rate limits enforced per store
-- [x] API keys hashed with SHA-256
-
-### Billing
-- [x] Free tier hard limit at 100/month
-- [x] Stripe checkout creates subscription
-- [x] Webhook handlers for subscription lifecycle
-- [x] Usage metering for overage billing
-
-### Integration
-- [x] Embed code works on external sites
-- [x] Widget loads with API key from data attribute
-- [x] Custom events fire (tryon:addToCart, etc.)
-
-### Production
-- [x] Vercel deployment configurations
-- [x] Environment variables documented
-- [x] Database migrations ready
-
----
-
-## Support
-
-For issues or questions:
-- GitHub Issues: [repository-url]/issues
-- Email: support@tryonplugin.com
-
----
-
-**Implementation completed: January 2026**
+**Target launch: Muse Hair Pro Shopify Store**

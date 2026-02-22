@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 
 const CDN_BASE = process.env.CDN_BASE || "/";
+const isProd = process.env.NODE_ENV === "production";
 
 export default defineConfig({
   server: {
@@ -9,7 +10,8 @@ export default defineConfig({
   base: CDN_BASE,
   build: {
     outDir: "dist",
-    sourcemap: true,
+    sourcemap: isProd ? "hidden" : true,
+    minify: "esbuild",
     rollupOptions: {
       input: {
         loader: "src/loader.ts",
@@ -22,7 +24,6 @@ export default defineConfig({
     }
   },
   define: {
-    // Inject build-time version for cache busting
     __BUILD_VERSION__: JSON.stringify(process.env.npm_package_version || "1.0.0")
   }
 });

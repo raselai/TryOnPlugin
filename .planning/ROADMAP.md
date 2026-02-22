@@ -1,191 +1,203 @@
-# TryOnPlugin Roadmap
+# Muse Hair Pro Virtual Try-On — Roadmap
 
-## Milestone: v1.0 - MVP Launch
+## Milestone: v1.0 - Muse Hair Pro Launch
 
-**Goal:** Ship a working virtual try-on widget that store owners can embed on any e-commerce site. Users click "Try this," upload a photo, see themselves wearing the product, and can add to cart.
+**Goal:** Ship a hair extension virtual try-on widget on Muse Hair Pro's Shopify store. Customers select a shade, length, and texture, upload or capture a photo, and see an AI-generated image of themselves wearing the extensions. They can download, share with their stylist, or add directly to cart.
 
 **Success Criteria:**
-- Widget embeds on Shopify, WooCommerce, and custom sites without breaking host styles
-- Try-on generation completes in <30 seconds with clear progress feedback
+- Widget embeds on Muse Hair Pro's Shopify product pages without breaking theme
+- Hair extension try-on completes in <30 seconds with progress feedback
 - Works on mobile and desktop browsers
-- Store owner can integrate with copy-paste of single script tag
+- Before/after comparison available for every try-on
+- Add to Shopify cart with correct variant (shade + length + texture)
+- Admin can manage shade catalog
 
 ---
 
-## Phase 1: Widget Foundation
+## Phase 1: Widget Foundation (Shopify Embed)
 
-**Goal:** Establish the core widget architecture with style isolation, lazy loading, and modal system that works reliably across any host site.
+**Goal:** Establish the widget shell with style isolation, lazy loading, and Muse Hair Pro brand styling that works on their Shopify store.
 
 **Delivers:**
-- Tiny loader script (<2KB) that initializes on page load
-- "Try this" button injection from data attributes
+- Tiny loader script (<2KB) for Shopify product pages
+- "Try On" button injection
 - Modal overlay with Shadow DOM style isolation
+- Muse Hair Pro brand styling (colors, fonts, logo)
 - Configuration parsing from script tag attributes
-- Basic state management for widget lifecycle
-
-**Key Requirements Addressed:**
-- Embeddable JS widget that works on any website
-- Cross-platform compatibility (no framework lock-in)
-
-**Why This Order:** Everything else depends on having a solid, isolated widget shell. CSS/DOM conflicts and z-index issues are the #1 cause of widget failure on real sites - must solve first.
 
 **Verification:**
-- [ ] Widget loads on Shopify test store without console errors
-- [ ] Widget loads on WooCommerce test store without console errors
-- [ ] Modal appears above sticky headers and cookie banners
-- [ ] Host site styles do not affect widget appearance
-- [ ] Widget styles do not leak to host site
-- [ ] Initial loader bundle is <2KB gzipped
+- [ ] Widget loads on Muse Hair Pro's Shopify store without console errors
+- [ ] Modal appears above all theme elements (header, announcement bar, chat)
+- [ ] Host site styles do not affect widget; widget styles do not leak
+- [ ] Loader bundle is <2KB gzipped
+- [ ] Brand styling matches Muse Hair Pro guidelines
 
 ---
 
-## Phase 2: Photo Upload Flow
+## Phase 2: Photo Upload + Live Camera
 
-**Goal:** Build the complete photo upload experience with validation, compression, and clear user guidance.
+**Goal:** Build photo input with both file upload and WebRTC camera capture.
 
 **Delivers:**
 - File picker with drag-and-drop support
-- Camera capture option for mobile devices
-- Client-side image compression (target <1MB)
+- WebRTC camera capture with live preview and snapshot
+- Client-side image compression (<1MB)
 - EXIF orientation handling
 - Photo requirements guidance UI
 - Preview with retake option
-- Privacy consent disclosure before upload
-
-**Key Requirements Addressed:**
-- Photo upload flow for user's full-body image
-- Mobile responsiveness
-
-**Why This Order:** Photo upload is the first user interaction after clicking "Try this." Must work smoothly before integrating with API - bad photos will produce bad results regardless of API quality.
+- Camera permission denied fallback (defaults to upload)
+- Privacy consent before upload
 
 **Verification:**
-- [ ] 10MB phone photo compresses to <1MB before upload
-- [ ] Photos display in correct orientation on iOS and Android
-- [ ] User sees clear guidance on photo requirements
+- [ ] File upload works on desktop and mobile
+- [ ] Camera capture works on iOS Safari and Android Chrome
+- [ ] Camera permission denied shows friendly fallback to upload
+- [ ] 10MB photos compress to <1MB before sending
 - [ ] Consent disclosure appears before first upload
-- [ ] Drag-and-drop works on desktop browsers
-- [ ] Camera capture works on mobile Safari and Chrome
 
 ---
 
-## Phase 3: API Integration
+## Phase 3: Hair Extension Selectors
 
-**Goal:** Connect to NanoBana Pro API with robust error handling, progress feedback, and graceful degradation.
+**Goal:** Build the shade picker, length selector, and texture toggle that load from the backend catalog API.
 
 **Delivers:**
-- NanoBana Pro API client with polling for results
-- Progress indicator with status messages during 5-30 second wait
-- Timeout handling (60 second max with clear messaging)
-- Error states with user-friendly messages and retry option
-- Circuit breaker for API outages
-- Result image display (zoomable)
-
-**Key Requirements Addressed:**
-- Integration with NanoBana Pro API for try-on generation
-- Display generated try-on image to user
-
-**Why This Order:** Core functionality - this is what users came for. Photo upload must work first so we have valid input to send to API.
+- Shade picker with color swatches and shade names (loaded from API)
+- Length selector: 14", 18", 22", 26" (loaded from API)
+- Texture toggle: Straight, Wavy, Curly (loaded from API)
+- Selection state management
+- Visual feedback on selected options
+- Catalog loaded from `/api/shades`, `/api/lengths`, `/api/textures`
 
 **Verification:**
-- [ ] Try-on generates successfully with test photos
-- [ ] Progress indicator updates during processing
-- [ ] 30+ second API response handled gracefully
-- [ ] API timeout shows friendly error with retry button
-- [ ] API error (500) shows friendly error with retry button
-- [ ] Result image displays at high quality and is zoomable
+- [ ] Shade swatches render with correct colors and names
+- [ ] Length options display and are selectable
+- [ ] Texture toggle switches between options with visual feedback
+- [ ] Selections persist in widget state
+- [ ] Catalog data loads from backend API
+- [ ] Works on mobile (touch-friendly selector sizing)
 
 ---
 
-## Phase 4: Actions & Host Integration
+## Phase 4: Gemini AI Hair-Specific
 
-**Goal:** Enable user actions from try-on result and communicate with host e-commerce platform.
+**Goal:** Replace generic category prompts with hair extension-specific Gemini prompts that produce realistic results.
 
 **Delivers:**
-- "Add to Cart" button that triggers host page callback
-- "Try Another Product" flow (reuse uploaded photo)
-- Close/dismiss functionality (X button, escape key, click outside)
-- Custom events for host page integration (`tryon:addToCart`, `tryon:close`)
-- Programmatic API for advanced integrations
-
-**Key Requirements Addressed:**
-- "Add to cart" action from try-on view
-- "Try another product" flow (reuse uploaded photo)
-- Close/dismiss functionality
-- Product image passed via button data attribute
-
-**Why This Order:** Actions depend on having a result to act on. Host integration patterns must be defined after core flow works.
+- `hairExtensionPrompt()` function replacing `categoryPrompt()`
+- Prompt includes: shade color, length (mapped to body landmarks), texture, blending instructions
+- Skin tone preservation in prompts
+- Natural root blending instructions
+- POST `/api/tryon` endpoint accepting photo + shade + length + texture
+- Progress feedback during 5-30 second generation
+- Timeout handling (60s) with retry option
 
 **Verification:**
-- [ ] "Add to Cart" dispatches event that host page can listen for
-- [ ] "Try Another" allows selecting different product without re-uploading photo
-- [ ] Modal closes via X button, escape key, and click outside
-- [ ] Session photo persists for multiple try-ons
-- [ ] Host page can programmatically open widget via JS API
+- [ ] Try-on generates realistic hair extension results
+- [ ] Results look natural across 4+ diverse skin tones
+- [ ] Each shade produces visually distinct, accurate colors
+- [ ] Each length option produces visually different results (14" vs 26" is obvious)
+- [ ] Straight/wavy/curly textures are clearly distinct
+- [ ] Extensions blend naturally with existing hair (not wig-like)
+- [ ] 30+ second generation handled with progress messages
 
 ---
 
-## Phase 5: Polish & Production Readiness
+## Phase 5: Results + Actions
 
-**Goal:** Refine UX, optimize performance, and prepare for real-world deployment.
+**Goal:** Display results with before/after comparison and enable download, share, and add-to-cart.
 
 **Delivers:**
+- Before/after comparison view (slider or toggle)
+- Download result as PNG/JPEG
+- Share with stylist (generate shareable link or email)
+- Add to Shopify cart with correct shade+length+texture variant
+- "Try Another Shade" flow (reuse uploaded photo)
+- Close/dismiss (X, Escape, click outside)
+
+**Verification:**
+- [ ] Before/after comparison works with slider or toggle
+- [ ] Download saves high-quality image to device
+- [ ] Share generates link or email with result
+- [ ] Add to Cart adds correct Shopify variant
+- [ ] "Try Another Shade" reuses photo without re-upload
+- [ ] Modal closes via X, Escape, and click outside
+
+---
+
+## Phase 6: Admin Dashboard
+
+**Goal:** Repurpose existing Next.js dashboard for shade catalog management.
+
+**Delivers:**
+- Admin login (simple secret-based auth)
+- Shade CRUD: name, hex color, display order, Shopify variant mapping
+- Length CRUD: label, description, body landmark reference
+- Texture CRUD: name, icon/image
+- Preview shade swatches in admin
+- Prisma schema with Shade, Length, Texture, AdminUser models
+
+**Verification:**
+- [ ] Admin can log in with ADMIN_SECRET
+- [ ] Admin can create, edit, delete, and reorder shades
+- [ ] Admin can manage lengths and textures
+- [ ] Changes immediately reflected in widget catalog
+- [ ] Shade colors in admin match widget rendering
+
+---
+
+## Phase 7: Polish + Production
+
+**Goal:** Final mobile optimization, testing, and production deployment.
+
+**Delivers:**
+- Mobile UX polish (touch interactions, responsive layout)
 - Loading animations and transitions
-- Mobile-optimized touch interactions
-- Bundle optimization (target <50KB gzipped for core)
-- Error boundary preventing widget crashes from affecting host
+- Bundle optimization (core <50KB gzipped)
+- Error boundary preventing widget crashes from affecting Shopify store
 - Accessibility basics (keyboard navigation, focus management)
-- Production build configuration
-- Integration documentation for store owners
-
-**Key Requirements Addressed:**
-- Works on any website (Shopify, WooCommerce, custom)
-- Mobile responsiveness (final polish)
-
-**Why This Order:** Polish comes after functionality works. Optimization requires measuring real bundle, which requires complete feature set.
+- Production deployment to Vercel
+- Monitoring and error logging
 
 **Verification:**
 - [ ] Core bundle is <50KB gzipped
-- [ ] Lighthouse mobile score doesn't drop when widget added to page
-- [ ] Widget is keyboard navigable (tab through controls)
-- [ ] Focus trapped inside modal when open
-- [ ] Widget crash doesn't break host page
-- [ ] Store owner can integrate following documentation alone
+- [ ] Widget is keyboard navigable
+- [ ] Widget crash doesn't break Shopify store
+- [ ] Works on iOS Safari, Android Chrome, desktop Chrome/Firefox/Safari
+- [ ] Full flow works on Muse Hair Pro's production Shopify store
 
 ---
 
 ## Dependencies
 
 ```
-Phase 1 (Foundation)
+Phase 1 (Widget Foundation)
     │
-    ├──> Phase 2 (Photo Upload) ──> Phase 3 (API Integration)
-    │                                       │
-    │                                       v
-    └─────────────────────────────> Phase 4 (Actions & Host Integration)
-                                            │
-                                            v
-                                    Phase 5 (Polish)
-```
+    ├──> Phase 2 (Photo + Camera)
+    │         │
+    │         └──> Phase 3 (Selectors) ──> Phase 4 (Gemini AI)
+    │                                              │
+    │                                              v
+    │                                      Phase 5 (Results + Actions)
+    │                                              │
+    │                                              v
+    └─────────────────────────────────────> Phase 7 (Polish)
 
-- **Phase 2** requires Phase 1 (needs modal to display upload UI)
-- **Phase 3** requires Phase 2 (needs photo to send to API)
-- **Phase 4** requires Phase 1 and Phase 3 (needs modal + result to act on)
-- **Phase 5** requires all previous phases (polish the complete flow)
+Phase 6 (Admin Dashboard) — can run in parallel after Phase 3
+```
 
 ---
 
 ## Out of Scope for v1.0
 
-Explicitly deferred to validate core product first:
-
-- Live camera AR / real-time try-on
-- Save/share to social media
-- User accounts or login
-- Platform-specific apps (Shopify App Store, WooCommerce plugin)
-- Analytics dashboard for merchants
-- Size recommendation integration
-- Outfit builder (multi-item try-on)
+- Multi-tenant SaaS / other stores
 - Billing/monetization
+- Non-Shopify platforms
+- Real-time AR / live video try-on
+- User accounts/login
+- Wig try-on
+- Automated shade matching
+- Analytics dashboard
 
 ---
 
@@ -193,26 +205,33 @@ Explicitly deferred to validate core product first:
 
 | Risk | Mitigation | Phase |
 |------|------------|-------|
-| CSS conflicts break host sites | Shadow DOM isolation, test on real stores | Phase 1 |
-| Modal hidden behind site elements | Append to body, max z-index, test with sticky headers | Phase 1 |
-| Large photos cause slow uploads | Client-side compression before upload | Phase 2 |
-| API latency frustrates users | Progress feedback, status messages, generous timeout | Phase 3 |
-| API outages break widget | Circuit breaker, graceful degradation messaging | Phase 3 |
-| Product images unsuitable for API | Document requirements, validate before sending | Phase 3 |
-| Bundle bloats host site performance | <2KB loader, lazy load core, bundle analysis | Phase 1, 5 |
-| GDPR/privacy compliance | Consent before upload, session-only storage | Phase 2 |
+| CSS conflicts with Shopify theme | Shadow DOM isolation, test on actual theme | Phase 1 |
+| Modal hidden behind theme elements | Append to body, max z-index, test with all store apps | Phase 1 |
+| Hair extensions look unrealistic | Iterative prompt engineering with diverse test photos | Phase 4 |
+| Color inaccurate across skin tones | Test each shade across 4+ skin tones, per-shade prompt tuning | Phase 4 |
+| Camera permission denied | Always provide upload fallback, explain why camera needed | Phase 2 |
+| Shopify theme breaks widget | Develop on actual theme from day one | Phase 1 |
+| Extension length looks wrong | Map lengths to body landmarks in prompts | Phase 4 |
+| API latency frustrates users | Progress messages, 60s timeout, cancel + retry | Phase 4 |
+| Bundle bloats Shopify store | <2KB loader, lazy load core, bundle analysis | Phase 1, 7 |
+| Privacy concerns | Consent before upload, delete photos after processing | Phase 2 |
 
 ---
 
 ## Tech Stack
 
 - **Language:** TypeScript
-- **Build:** Vite (or Rollup) for optimized bundles
-- **Styling:** CSS-in-JS or bundled CSS within Shadow DOM
-- **State:** Lightweight reactive store (vanilla or ~1KB library)
-- **API:** Fetch with async/await, polling for results
+- **Widget Build:** Vite
+- **Widget Styling:** CSS within Shadow DOM
+- **Widget State:** Lightweight reactive store (vanilla)
+- **Backend:** Fastify (Node.js)
+- **Database:** PostgreSQL with Prisma ORM
+- **AI:** Google Gemini API (image generation)
+- **E-commerce:** Shopify AJAX Cart API
+- **Camera:** WebRTC (getUserMedia)
+- **Dashboard:** Next.js (repurposed from existing)
+- **Deployment:** Vercel
 - **Testing:** Vitest for unit tests, Playwright for integration
 
 ---
-
-*Created: 2026-01-18*
+*Created: 2026-02-22*

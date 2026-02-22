@@ -1,12 +1,48 @@
-import { getConfig, getApiKey } from '../config';
+import { getConfig } from '../config';
 import { getAbortController, cancelProcessing } from '../components/Progress';
+import type { Shade, Length, Texture, Catalog } from '../state';
 
 const CLIENT_TIMEOUT = 90_000; // 90 seconds
-const API_KEY_HEADER = 'x-tryon-api-key';
+
+let catalogCache: Catalog | null = null;
 
 export interface TryOnResult {
   imageBase64: string;
   mimeType: string;
+}
+
+export async function fetchCatalog(): Promise<Catalog> {
+  if (catalogCache && catalogCache.loaded) {
+    return catalogCache;
+  }
+
+  const config = getConfig();
+  const baseUrl = config.apiBaseUrl;
+
+  const [shadesRes, lengthsRes, texturesRes] = await Promise.all([
+    fetch(`${baseUrl}/api/shades`),
+    fetch(`${baseUrl}/api/lengths`),
+    fetch(`${baseUrl}/api/textures`),
+  ]);
+
+  if (!shadesRes.ok || !lengthsRes.ok || !texturesRes.ok) {
+    throw new Error('Failed to load catalog');
+  }
+
+  const [shadesData, lengthsData, texturesData] = await Promise.all([
+    shadesRes.json(),
+    lengthsRes.json(),
+    texturesRes.json(),
+  ]);
+
+  catalogCache = {
+    shades: shadesData.shades as Shade[],
+    lengths: lengthsData.lengths as Length[],
+    textures: texturesData.textures as Texture[],
+    loaded: true,
+  };
+
+  return catalogCache;
 }
 
 export interface ApiError {
@@ -17,7 +53,9 @@ export interface ApiError {
 
 export async function submitTryOn(
   userPhoto: File,
-  productImageUrl: string,
+  shadeId: string,
+  lengthId: string,
+  textureId: string,
   onProgress?: (message: string) => void
 ): Promise<TryOnResult> {
   const config = getConfig();
@@ -33,33 +71,25 @@ export async function submitTryOn(
 
     const formData = new FormData();
     formData.append('userImage', userPhoto);
-    formData.append('productImageUrl', productImageUrl);
+    formData.append('shadeId', shadeId);
+    formData.append('lengthId', lengthId);
+    formData.append('textureId', textureId);
 
     // Simulate progress stages
     const progressTimer = setInterval(() => {
-      const elapsed = Date.now();
       const messages = [
         'Analyzing your photo...',
-        'Preparing the product...',
-        'Creating your look...',
+        'Preparing the extensions...',
+        'Applying your look...',
         'Almost there...'
       ];
-      // Cycle through messages
       const index = Math.floor(Math.random() * messages.length);
       onProgress?.(messages[index]);
     }, 5000);
 
-    // Build request headers
-    const headers: Record<string, string> = {};
-    const apiKey = getApiKey();
-    if (apiKey) {
-      headers[API_KEY_HEADER] = apiKey;
-    }
-
     const response = await fetch(`${config.apiBaseUrl}/api/tryon`, {
       method: 'POST',
       body: formData,
-      headers,
       signal: controller.signal
     });
 
@@ -69,16 +99,19 @@ export async function submitTryOn(
     if (!response.ok) {
       const errorData = await parseErrorResponse(response);
 
-      // Handle specific error codes with user-friendly messages
       let message = errorData.error || 'Try-on failed';
-      if (errorData.code === 'MISSING_API_KEY') {
-        message = 'Widget not configured. Please add your API key.';
-      } else if (errorData.code === 'INVALID_API_KEY') {
-        message = 'Invalid API key. Please check your configuration.';
-      } else if (errorData.code === 'QUOTA_EXCEEDED') {
-        message = 'Usage limit reached. Please try again later.';
-      } else if (errorData.code === 'RATE_LIMIT_EXCEEDED') {
-        message = 'Too many requests. Please wait a moment.';
+      if (errorData.code === 'MISSING_SELECTIONS') {
+        message = 'Please select a shade, length, and texture.';
+      } else if (errorData.code === 'TIMEOUT') {
+        message = 'Request timed out. Please try again.';
+      } else if (errorData.code === 'RATE_LIMITED') {
+        message = 'Too many requests. Please wait a moment and try again.';
+      } else if (errorData.code === 'SAFETY_BLOCK') {
+        message = 'Your photo could not be processed. Please try a different photo.';
+      } else if (errorData.code === 'UNSUITABLE_PHOTO') {
+        message = errorData.error || 'This photo may not work well with hair extensions. Please try a photo showing longer hair.';
+      } else if (errorData.code === 'NO_IMAGE') {
+        message = 'The AI could not generate a result. Please try again.';
       }
 
       throw new TryOnError(

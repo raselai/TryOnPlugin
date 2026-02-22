@@ -5,37 +5,21 @@ import multipart from "@fastify/multipart";
 import { GoogleGenAI } from "@google/genai";
 import { withRetry } from "./utils/retry.js";
 import { prisma } from "./db.js";
-import { authenticate, validateOrigin } from "./middleware/auth.js";
-import { tenantRateLimit, checkMonthlyQuota } from "./middleware/rateLimit.js";
-import { logUsage, incrementQuota } from "./services/usage.js";
-import { registerBillingRoutes } from "./routes/billing.js";
-import { registerWebhookRoutes, rawBodyPlugin } from "./routes/webhooks.js";
-import { registerStoreRoutes } from "./routes/stores.js";
-import type { AuthenticatedRequest } from "./types.js";
+import { registerCatalogRoutes } from "./routes/catalog.js";
+import { registerAdminRoutes } from "./routes/admin.js";
+import { tryOnRateLimit } from "./middleware/rateLimit.js";
 
 const PORT = Number(process.env.PORT || 8787);
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const CLASSIFIER_MODEL = process.env.GEMINI_CLASSIFIER_MODEL || "gemini-2.5-flash-image";
 const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image";
 const REQUEST_TIMEOUT = 120_000; // 2 minutes
 
 const app = Fastify({ logger: true });
 
-// Register raw body plugin for webhook signature verification
-await rawBodyPlugin(app);
-
-// CORS configuration - will be overridden per-request for authenticated routes
+// CORS — allow Shopify store and local dev
 app.register(cors, {
-  origin: (origin, cb) => {
-    // Allow all origins by default (will be validated per-store for authenticated routes)
-    cb(null, true);
-  },
+  origin: true,
   credentials: true,
-  exposedHeaders: [
-    "X-RateLimit-Limit",
-    "X-RateLimit-Remaining",
-    "X-RateLimit-Reset",
-  ],
 });
 
 // Multipart file upload
@@ -46,10 +30,6 @@ app.register(multipart, {
 });
 
 const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
-
-// Image cache for product URLs
-const productImageCache = new Map<string, { buffer: Buffer; mimetype: string; timestamp: number }>();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 type FilePart = {
   fieldname: string;
@@ -90,70 +70,6 @@ async function collectFormData(request: any): Promise<{ files: Record<string, Fi
   return { files, fields };
 }
 
-async function fetchProductImage(url: string): Promise<{ buffer: Buffer; mimetype: string }> {
-  let parsedUrl: URL;
-  try {
-    parsedUrl = new URL(url);
-  } catch {
-    throw { status: 400, message: "Invalid product image URL" };
-  }
-
-  if (parsedUrl.protocol !== "https:") {
-    throw { status: 400, message: "Product image URL must use HTTPS" };
-  }
-
-  const cached = productImageCache.get(url);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return { buffer: cached.buffer, mimetype: cached.mimetype };
-  }
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30_000);
-
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "TryOnWidget/1.0",
-      },
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      throw { status: 400, message: `Failed to fetch product image: ${response.status}` };
-    }
-
-    const contentType = response.headers.get("content-type") || "image/jpeg";
-    if (!contentType.startsWith("image/")) {
-      throw { status: 400, message: "URL does not point to an image" };
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    if (buffer.length > 10 * 1024 * 1024) {
-      throw { status: 400, message: "Product image is too large (max 10MB)" };
-    }
-
-    productImageCache.set(url, { buffer, mimetype: contentType, timestamp: Date.now() });
-
-    for (const [key, value] of productImageCache.entries()) {
-      if (Date.now() - value.timestamp > CACHE_TTL) {
-        productImageCache.delete(key);
-      }
-    }
-
-    return { buffer, mimetype: contentType };
-  } catch (error: any) {
-    clearTimeout(timeoutId);
-    if (error.name === "AbortError") {
-      throw { status: 504, message: "Timeout fetching product image" };
-    }
-    throw error;
-  }
-}
-
 function safeJsonParse(text: string): any | null {
   try {
     return JSON.parse(text);
@@ -171,189 +87,193 @@ function extractFirstJson(text: string): any | null {
   return safeJsonParse(text.slice(start, end + 1));
 }
 
-function categoryPrompt(category: string): string {
-  const common =
-    "Preserve the person\\'s face, skin tone, body shape, and lighting. " +
-    "Place the product naturally on the body. Keep the background unchanged.";
+/**
+ * Texture-specific styling details for more realistic Gemini results.
+ */
+const TEXTURE_DETAILS: Record<string, string> = {
+  straight: "The hair should be sleek, smooth, and flowing with a slight natural sheen. Strands should fall cleanly without frizz.",
+  wavy: "The hair should have a natural S-wave pattern with gentle, loose waves. It should look soft and voluminous, not curled with a curling iron.",
+  curly: "The hair should have defined, bouncy curls with natural volume. The curl pattern should be consistent and springy with slight variation for realism.",
+};
 
-  switch (category) {
-    case "clothing":
-      return "Make the person wear the clothing item from the product image. " + common;
-    case "watch":
-      return "Place the watch on the person\\'s wrist. " + common;
-    case "jewelry":
-      return "Place the jewelry on the person appropriately (neck, ears, or wrist). " + common;
-    case "sunglasses":
-      return "Place the sunglasses on the person\\'s face. " + common;
-    case "shoes":
-      return "Place the shoes on the person\\'s feet. " + common;
-    case "bag":
-      return "Place the bag naturally on the person (hand or shoulder). " + common;
-    default:
-      return "Place the product on the person in a natural way. " + common;
+const ANALYSIS_MODEL = process.env.GEMINI_ANALYSIS_MODEL || "gemini-2.5-flash";
+
+/**
+ * Step 1: Analyze the photo to detect hair suitability before generating.
+ * Returns analysis with gender, hair length, and suitability for extensions.
+ */
+async function analyzePhoto(aiClient: GoogleGenAI, imageBuffer: Buffer, mimeType: string): Promise<{ suitable: boolean; gender: string; currentHairLength: string; reason?: string }> {
+  try {
+    const response = await aiClient.models.generateContent({
+      model: ANALYSIS_MODEL,
+      contents: [
+        {
+          inlineData: {
+            mimeType,
+            data: imageBuffer.toString("base64"),
+          },
+        },
+        {
+          text: [
+            `Analyze this photo for a hair extension try-on tool. Respond in JSON only, no other text.`,
+            ``,
+            `Determine:`,
+            `1. "gender": The apparent gender of the person ("male", "female", "ambiguous")`,
+            `2. "currentHairLength": Their current hair length ("very_short", "short", "medium", "long")`,
+            `3. "suitable": Whether hair extensions would look natural on this person (true/false)`,
+            `4. "reason": If not suitable, a brief user-friendly reason why`,
+            ``,
+            `Hair extensions are NOT suitable when:`,
+            `- The person has very short or buzzcut male hair (extensions cannot blend naturally)`,
+            `- No person or face is clearly visible in the photo`,
+            `- The photo is too dark or blurry to process`,
+            ``,
+            `Hair extensions ARE suitable when:`,
+            `- The person has medium to long hair of any gender`,
+            `- The person has short hair but long enough to blend (at least a few inches)`,
+            `- Men with longer hairstyles (man buns, shoulder-length, etc.)`,
+            ``,
+            `Respond with ONLY valid JSON: {"gender":"...","currentHairLength":"...","suitable":true/false,"reason":"..."}`,
+          ].join("\n"),
+        },
+      ],
+    });
+
+    const text = response.candidates?.[0]?.content?.parts?.find((p: any) => p.text)?.text || "";
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+  } catch (err) {
+    // If analysis fails, allow generation to proceed
+    console.warn("[TryOn] Photo analysis failed, proceeding with generation:", err);
   }
+  return { suitable: true, gender: "unknown", currentHairLength: "unknown" };
 }
 
-async function classifyProductImage(
-  buffer: Buffer,
-  mimetype: string,
-  signal?: AbortSignal
-): Promise<{ category: string; confidence: number; raw: string } | null> {
-  if (!ai) {
-    return null;
-  }
+/**
+ * Step 2: Build the hair extension prompt, informed by photo analysis.
+ */
+function hairExtensionPrompt(
+  shade: { name: string; hexColor: string },
+  lengthInfo: { inches: number; bodyLandmark: string },
+  texture: { name: string },
+  analysis: { gender: string; currentHairLength: string }
+): string {
+  const textureName = texture.name.toLowerCase();
+  const textureDetail = TEXTURE_DETAILS[textureName] || "";
 
-  const prompt =
-    "Classify the product in the image into one of these categories: " +
-    "clothing, watch, jewelry, sunglasses, shoes, bag, other. " +
-    "Return ONLY a JSON object with keys category and confidence (0 to 1).";
+  const genderGuidance = analysis.gender === "male"
+    ? [
+        `GENDER-SPECIFIC STYLING (MALE):`,
+        `- This person is male. The extensions must look appropriate for a man.`,
+        `- Keep the hairstyle masculine — think men's long hair styles (like Jason Momoa, Timothée Chalamet, or Keanu Reeves in long hair), NOT women's hairstyles.`,
+        `- No feminine volume, no salon blowout look, no bouncy curls typical of women's styling.`,
+        `- The hair should look like a natural men's longer hairstyle — slightly rougher, less polished, more effortless.`,
+        `- Maintain the existing masculine hairline and forehead shape.`,
+      ].join("\n")
+    : [
+        `GENDER-SPECIFIC STYLING (FEMALE):`,
+        `- Style the extensions in a natural, feminine way appropriate for the person's overall look.`,
+        `- The extensions should add length and volume that complements their existing style.`,
+      ].join("\n");
 
-  const response = await withRetry(
-    async () => {
-      return ai.models.generateContent({
-        model: CLASSIFIER_MODEL,
-        contents: [
-          { text: prompt },
-          {
-            inlineData: {
-              mimeType: mimetype,
-              data: buffer.toString("base64"),
-            },
-          },
-        ],
-        config: {
-          responseModalities: ["TEXT"],
-        },
-      });
-    },
-    { maxRetries: 2 }
-  );
-
-  const parts = response.candidates?.[0]?.content?.parts || [];
-  const text = parts.map((p: any) => p.text).filter(Boolean).join("\n");
-  const parsed = safeJsonParse(text) || extractFirstJson(text);
-
-  if (!parsed || typeof parsed.category !== "string") {
-    return { category: "other", confidence: 0, raw: text };
-  }
-
-  return {
-    category: parsed.category,
-    confidence: Number(parsed.confidence || 0),
-    raw: text,
-  };
+  return [
+    `You are a professional hair stylist photo editor. Edit this photo to add realistic clip-in hair extensions.`,
+    ``,
+    `CRITICAL RULE: You are ONLY adding hair extensions to this person's existing hair. You are NOT replacing their hair. You are NOT changing their gender appearance. The person must still look like themselves, just with longer/thicker hair.`,
+    ``,
+    genderGuidance,
+    ``,
+    `CURRENT HAIR ANALYSIS:`,
+    `- The person's current hair length is approximately: ${analysis.currentHairLength}`,
+    `- Extend their existing hair to the target length below. The transition from their natural hair to the extensions must be seamless.`,
+    ``,
+    `EXTENSION DETAILS:`,
+    `- Color: ${shade.name} (hex ${shade.hexColor})`,
+    `- Target length: ${lengthInfo.inches} inches, reaching the person's ${lengthInfo.bodyLandmark}`,
+    `- Texture: ${textureName}`,
+    ``,
+    `BLENDING REQUIREMENTS:`,
+    `- Blend the extensions seamlessly with the person's existing hair — the transition point should be invisible.`,
+    `- Add subtle highlights and lowlights near the blend zone to create a natural color transition.`,
+    `- The extension color should interact realistically with the ambient lighting in the photo.`,
+    ``,
+    `STYLING REQUIREMENTS:`,
+    `${textureDetail}`,
+    `- The hair should have natural movement and gravity — it should drape and fall realistically.`,
+    `- Add subtle shadows where the hair rests on the shoulders and neck.`,
+    ``,
+    `PRESERVATION REQUIREMENTS (CRITICAL):`,
+    `- Do NOT alter the person's face, facial features, skin tone, expression, or gender appearance.`,
+    `- Do NOT alter the person's body shape, clothing, or accessories.`,
+    `- Do NOT alter the background, lighting direction, or color temperature.`,
+    `- The person must be clearly recognizable as the same person in the original photo.`,
+    ``,
+    `OUTPUT: Return a single photorealistic edited image.`,
+  ].join("\n");
 }
 
 // Register routes
-registerStoreRoutes(app);
-registerBillingRoutes(app);
-registerWebhookRoutes(app);
+registerCatalogRoutes(app);
+registerAdminRoutes(app);
 
 // Health check (public)
 app.get("/health", async () => ({ ok: true, timestamp: new Date().toISOString() }));
 
-// Classify endpoint (protected)
-app.post("/api/classify", {
-  preHandler: [authenticate, validateOrigin, tenantRateLimit],
-}, async (request, reply) => {
-  const authRequest = request as AuthenticatedRequest;
+// Hair extension try-on endpoint (public — single store, no auth needed)
+app.post("/api/tryon", { preHandler: [tryOnRateLimit] }, async (request, reply) => {
   const startTime = Date.now();
-
-  try {
-    const { files } = await collectFormData(request);
-    const productImage = files.productImage;
-
-    if (!productImage) {
-      await logUsage(authRequest.store.id, "classify", "error", {
-        errorCode: "MISSING_FILE",
-      });
-      return sendError(reply, 400, "productImage is required", "MISSING_FILE", false);
-    }
-
-    const result = await classifyProductImage(productImage.buffer, productImage.mimetype);
-    if (!result) {
-      await logUsage(authRequest.store.id, "classify", "error", {
-        errorCode: "NO_API_KEY",
-      });
-      return sendError(reply, 501, "GEMINI_API_KEY not set", "NO_API_KEY", false);
-    }
-
-    await logUsage(authRequest.store.id, "classify", "success", {
-      processingMs: Date.now() - startTime,
-      productCategory: result.category,
-    });
-
-    return result;
-  } catch (error: any) {
-    app.log.error(error);
-    await logUsage(authRequest.store.id, "classify", "error", {
-      processingMs: Date.now() - startTime,
-      errorCode: "CLASSIFY_ERROR",
-    });
-    return sendError(reply, 500, "Classification failed", "CLASSIFY_ERROR", true);
-  }
-});
-
-// Try-on endpoint (protected)
-app.post("/api/tryon", {
-  preHandler: [authenticate, validateOrigin, tenantRateLimit],
-}, async (request, reply) => {
-  const authRequest = request as AuthenticatedRequest;
-  const startTime = Date.now();
-
-  // Check monthly quota
-  const quotaAvailable = await checkMonthlyQuota(request, reply);
-  if (!quotaAvailable) {
-    await logUsage(authRequest.store.id, "tryon", "quota_exceeded", {
-      processingMs: Date.now() - startTime,
-    });
-    return;
-  }
-
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
   try {
     const { files, fields } = await collectFormData(request);
     const userImage = files.userImage;
-    const productImageUrl = fields.productImageUrl;
-
-    let productBuffer: Buffer;
-    let productMimetype: string;
-
-    if (productImageUrl) {
-      const fetched = await fetchProductImage(productImageUrl);
-      productBuffer = fetched.buffer;
-      productMimetype = fetched.mimetype;
-    } else if (files.productImage) {
-      productBuffer = files.productImage.buffer;
-      productMimetype = files.productImage.mimetype;
-    } else {
-      await logUsage(authRequest.store.id, "tryon", "error", {
-        errorCode: "MISSING_PRODUCT",
-      });
-      return sendError(reply, 400, "productImageUrl or productImage is required", "MISSING_PRODUCT", false);
-    }
 
     if (!userImage) {
-      await logUsage(authRequest.store.id, "tryon", "error", {
-        errorCode: "MISSING_USER_IMAGE",
-      });
       return sendError(reply, 400, "userImage is required", "MISSING_USER_IMAGE", false);
     }
 
     if (!ai) {
-      await logUsage(authRequest.store.id, "tryon", "error", {
-        errorCode: "NO_API_KEY",
-      });
       return sendError(reply, 501, "GEMINI_API_KEY not set", "NO_API_KEY", false);
     }
 
-    const classification = await classifyProductImage(productBuffer, productMimetype, controller.signal);
-    const category = classification?.category || "other";
-    const confidence = classification?.confidence || 0;
+    // Look up shade, length, texture from catalog
+    const shadeId = fields.shadeId;
+    const lengthId = fields.lengthId;
+    const textureId = fields.textureId;
 
-    const prompt = categoryPrompt(confidence >= 0.5 ? category : "other");
+    if (!shadeId || !lengthId || !textureId) {
+      return sendError(reply, 400, "shadeId, lengthId, and textureId are required", "MISSING_SELECTIONS", false);
+    }
+
+    const [shade, length, texture] = await Promise.all([
+      prisma.shade.findUnique({ where: { id: shadeId } }),
+      prisma.length.findUnique({ where: { id: lengthId } }),
+      prisma.texture.findUnique({ where: { id: textureId } }),
+    ]);
+
+    if (!shade) return sendError(reply, 400, "Invalid shade selected", "INVALID_SHADE", false);
+    if (!length) return sendError(reply, 400, "Invalid length selected", "INVALID_LENGTH", false);
+    if (!texture) return sendError(reply, 400, "Invalid texture selected", "INVALID_TEXTURE", false);
+
+    // Step 1: Analyze the photo for gender and hair suitability
+    const analysis = await analyzePhoto(ai, userImage.buffer, userImage.mimetype);
+    app.log.info({ analysis }, "Photo analysis complete");
+
+    if (!analysis.suitable) {
+      return sendError(
+        reply,
+        422,
+        analysis.reason || "This photo may not work well with hair extensions. Please try a different photo.",
+        "UNSUITABLE_PHOTO",
+        false
+      );
+    }
+
+    // Step 2: Generate with gender-aware prompt
+    const prompt = hairExtensionPrompt(shade, length, texture, analysis);
 
     const response = await withRetry(
       async () => {
@@ -364,12 +284,6 @@ app.post("/api/tryon", {
               inlineData: {
                 mimeType: userImage.mimetype,
                 data: userImage.buffer.toString("base64"),
-              },
-            },
-            {
-              inlineData: {
-                mimeType: productMimetype,
-                data: productBuffer.toString("base64"),
               },
             },
             { text: prompt },
@@ -384,58 +298,67 @@ app.post("/api/tryon", {
 
     clearTimeout(timeoutId);
 
-    const parts = response.candidates?.[0]?.content?.parts || [];
+    // Check for content filtering / safety blocks
+    const candidate = response.candidates?.[0];
+    const finishReason = candidate?.finishReason;
+
+    if (finishReason === "SAFETY") {
+      app.log.warn({ shade: shade.name, finishReason }, "Gemini blocked by safety filter");
+      return sendError(reply, 422, "The image could not be processed. Please try a different photo.", "SAFETY_BLOCK", false);
+    }
+
+    if (finishReason === "RECITATION") {
+      app.log.warn({ shade: shade.name, finishReason }, "Gemini blocked by recitation filter");
+      return sendError(reply, 422, "The image could not be processed. Please try a different photo.", "RECITATION_BLOCK", false);
+    }
+
+    if (!candidate?.content?.parts) {
+      app.log.error({ finishReason, candidateCount: response.candidates?.length }, "No content in Gemini response");
+      return sendError(reply, 502, "No result returned from model", "EMPTY_RESPONSE", true);
+    }
+
+    const parts = candidate.content.parts;
     const imagePart = parts.find((p: any) => p.inlineData);
 
     if (!imagePart?.inlineData?.data) {
-      await logUsage(authRequest.store.id, "tryon", "error", {
-        processingMs: Date.now() - startTime,
-        errorCode: "NO_IMAGE",
-        productCategory: category,
-      });
-      return sendError(reply, 502, "No image returned from model", "NO_IMAGE", true);
+      // Model returned text instead of an image — log it for debugging
+      const textParts = parts.filter((p: any) => p.text).map((p: any) => p.text);
+      app.log.warn({ finishReason, textResponse: textParts.join(" ").slice(0, 200) }, "Gemini returned text instead of image");
+      return sendError(reply, 502, "No image returned from model. Please try again.", "NO_IMAGE", true);
     }
 
-    // Increment quota and log success
-    await incrementQuota(authRequest.store);
-    await logUsage(authRequest.store.id, "tryon", "success", {
-      processingMs: Date.now() - startTime,
-      productCategory: category,
-    });
+    const processingMs = Date.now() - startTime;
+    app.log.info({ processingMs, shade: shade.name, length: length.inches, texture: texture.name }, "Try-on completed");
 
     return {
-      category,
-      confidence,
-      prompt,
       imageBase64: imagePart.inlineData.data,
       mimeType: imagePart.inlineData.mimeType || "image/png",
+      shade: { id: shade.id, name: shade.name, hexColor: shade.hexColor },
+      length: { id: length.id, label: length.label, inches: length.inches },
+      texture: { id: texture.id, name: texture.name },
+      processingMs,
     };
   } catch (error: any) {
     clearTimeout(timeoutId);
     app.log.error(error);
 
-    const processingMs = Date.now() - startTime;
-
     if (error.name === "AbortError") {
-      await logUsage(authRequest.store.id, "tryon", "error", {
-        processingMs,
-        errorCode: "TIMEOUT",
-      });
       return sendError(reply, 504, "Request timed out", "TIMEOUT", true);
     }
 
-    if (error.status) {
-      await logUsage(authRequest.store.id, "tryon", "error", {
-        processingMs,
-        errorCode: "FETCH_ERROR",
-      });
-      return sendError(reply, error.status, error.message, "FETCH_ERROR", error.status >= 500);
+    // Gemini API errors
+    if (error.status === 429) {
+      return sendError(reply, 429, "Too many requests. Please wait a moment and try again.", "RATE_LIMITED", true);
     }
 
-    await logUsage(authRequest.store.id, "tryon", "error", {
-      processingMs,
-      errorCode: "TRYON_ERROR",
-    });
+    if (error.status >= 400 && error.status < 500) {
+      return sendError(reply, error.status, error.message || "Invalid request to AI model", "API_CLIENT_ERROR", false);
+    }
+
+    if (error.status >= 500) {
+      return sendError(reply, 502, "AI service is temporarily unavailable. Please try again.", "API_SERVER_ERROR", true);
+    }
+
     return sendError(reply, 500, "Try-on generation failed", "TRYON_ERROR", true);
   }
 });

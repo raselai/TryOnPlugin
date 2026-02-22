@@ -3,23 +3,24 @@
  * Lightweight loader script (<2KB gzipped) that lazy-loads the main widget on first interaction
  */
 
-// Capture script URL at load time (must use document.currentScript for classic/async scripts)
-const SCRIPT_URL = (document.currentScript as HTMLScriptElement)?.src || '';
+// Capture script URL at load time
+// - Classic/async scripts: document.currentScript works
+// - Module scripts: document.currentScript is null, use import.meta.url
+const SCRIPT_URL = (document.currentScript as HTMLScriptElement)?.src || import.meta.url || '';
 const WIDGET_SCRIPT_ID = 'tryon-widget-script';
+const IS_DEV = SCRIPT_URL.includes('loader.ts');
 
 interface TryOnConfig {
   apiBaseUrl?: string;
   privacyPolicyUrl?: string;
-  apiKey?: string | null;
 }
 
 interface TryOnAPI {
-  open(options?: { productImage?: string; productId?: string }): void;
+  open(options?: { productId?: string }): void;
   close(): void;
-  setProduct(imageUrl: string, productId?: string): void;
   _init(config: TryOnConfig): void;
   _ready: boolean;
-  _pendingOpen?: { productImage: string; productId?: string };
+  _pendingOpen?: { productId?: string };
 }
 
 // Store reference to the real widget API once loaded
@@ -27,14 +28,13 @@ let widgetAPI: TryOnAPI | null = null;
 
 function getScriptConfig(): TryOnConfig {
   // Find the script tag that loaded us to read data attributes
-  const scripts = document.querySelectorAll('script[data-tryon-api], script[data-tryon-api-key], script[src*="loader"]');
+  const scripts = document.querySelectorAll('script[data-tryon-api], script[src*="loader"]');
   for (const script of scripts) {
     const el = script as HTMLScriptElement;
-    if (el.dataset.tryonApi || el.dataset.tryonPrivacy || el.dataset.tryonApiKey) {
+    if (el.dataset.tryonApi || el.dataset.tryonPrivacy) {
       return {
         apiBaseUrl: el.dataset.tryonApi || undefined,
         privacyPolicyUrl: el.dataset.tryonPrivacy || undefined,
-        apiKey: el.dataset.tryonApiKey || null
       };
     }
   }
@@ -42,33 +42,49 @@ function getScriptConfig(): TryOnConfig {
 }
 
 function getWidgetScriptUrl(): string {
-  // Dev mode: loader.ts -> main.ts
-  if (SCRIPT_URL.includes('loader.ts')) {
+  if (IS_DEV) {
     return SCRIPT_URL.replace('loader.ts', 'main.ts');
   }
-  // Production: loader.js -> widget.js
   if (SCRIPT_URL.includes('loader.js')) {
     return SCRIPT_URL.replace('loader.js', 'widget.js');
   }
-  // Fallback
-  return new URL('./widget.js', SCRIPT_URL).href;
+  try {
+    return new URL('./widget.js', SCRIPT_URL).href;
+  } catch {
+    return '/widget.js';
+  }
 }
 
 function loadWidget(callback: () => void): void {
   if (document.getElementById(WIDGET_SCRIPT_ID)) {
-    // Already loaded, call callback
     if (widgetAPI) {
       callback();
     }
     return;
   }
 
+  // In dev mode (Vite), use dynamic import for HMR support
+  if (IS_DEV) {
+    const marker = document.createElement('div');
+    marker.id = WIDGET_SCRIPT_ID;
+    marker.style.display = 'none';
+    document.body.appendChild(marker);
+
+    import(/* @vite-ignore */ getWidgetScriptUrl()).then(() => {
+      widgetAPI = (window as any).TryOn;
+      callback();
+    }).catch((err) => {
+      console.error('[TryOn] Failed to load widget:', err);
+    });
+    return;
+  }
+
+  // Production: inject script tag
   const script = document.createElement('script');
   script.id = WIDGET_SCRIPT_ID;
   script.src = getWidgetScriptUrl();
   script.type = 'module';
   script.onload = () => {
-    // Wait a tick for the module to initialize and set window.TryOn
     setTimeout(() => {
       widgetAPI = (window as any).TryOn;
       callback();
@@ -80,14 +96,14 @@ function loadWidget(callback: () => void): void {
 
 const config = getScriptConfig();
 
-const TryOn: TryOnAPI = {
+const TryOnWidget: TryOnAPI = {
   _ready: false,
 
   open(options) {
     if (this._ready && widgetAPI) {
       widgetAPI.open(options);
     } else {
-      this._pendingOpen = options ? { productImage: options.productImage || '', productId: options.productId } : undefined;
+      this._pendingOpen = options;
       loadWidget(() => {
         if (widgetAPI) {
           widgetAPI._init(config);
@@ -95,6 +111,8 @@ const TryOn: TryOnAPI = {
           if (this._pendingOpen) {
             widgetAPI.open(this._pendingOpen);
             this._pendingOpen = undefined;
+          } else {
+            widgetAPI.open();
           }
         }
       });
@@ -107,29 +125,25 @@ const TryOn: TryOnAPI = {
     }
   },
 
-  setProduct(imageUrl, productId) {
-    if (this._ready && widgetAPI) {
-      widgetAPI.setProduct(imageUrl, productId);
-    }
-  },
-
   _init(cfg) {
     Object.assign(config, cfg);
   }
 };
 
-(window as any).TryOn = TryOn;
+// Expose as both TryOnWidget and TryOn for compatibility
+(window as any).TryOnWidget = TryOnWidget;
+(window as any).TryOn = TryOnWidget;
 
+// Auto-bind any buttons with data-tryon-open attribute
 function bindButtons(): void {
-  const buttons = document.querySelectorAll<HTMLElement>('[data-tryon-image]');
+  const buttons = document.querySelectorAll<HTMLElement>('[data-tryon-open]');
   buttons.forEach(button => {
     if (button.dataset.tryonBound === 'true') return;
     button.dataset.tryonBound = 'true';
 
     button.addEventListener('click', () => {
-      const productImage = button.dataset.tryonImage || '';
-      const productId = button.dataset.tryonId;
-      TryOn.open({ productImage, productId });
+      const productId = button.dataset.tryonProductId;
+      TryOnWidget.open({ productId });
     });
   });
 }

@@ -6,7 +6,9 @@ export type TryOnEventType =
 
 export interface TryOnEventDetail {
   productId?: string;
-  productImageUrl?: string;
+  shade?: any;
+  length?: any;
+  texture?: any;
   tryOnImage?: string;
 }
 

@@ -61,11 +61,36 @@ function initWidget(): void {
 
 // Initialize on load
 function init(): void {
-  initWidget();
+  try {
+    initWidget();
 
-  // Expose public API (overwrites loader)
-  const api = createAPI();
-  (window as any).TryOn = api;
+    // Expose public API (overwrites loader)
+    const api = createAPI();
+    (window as any).TryOn = api;
+    (window as any).TryOnWidget = api;
+  } catch (err) {
+    // Error boundary: never let widget errors propagate to the host Shopify store
+    console.error('[TryOn] Widget initialization failed:', err);
+  }
+}
+
+// Global error handler for uncaught errors within the widget
+if (typeof window !== 'undefined') {
+  window.addEventListener('error', (e) => {
+    // Only handle errors from our widget code
+    if (e.filename && e.filename.includes('widget')) {
+      console.error('[TryOn] Uncaught error:', e.message);
+      e.preventDefault(); // Prevent propagation to host page
+    }
+  });
+
+  window.addEventListener('unhandledrejection', (e) => {
+    const reason = e.reason;
+    if (reason && reason.name === 'TryOnError') {
+      console.error('[TryOn] Unhandled rejection:', reason.message);
+      e.preventDefault();
+    }
+  });
 }
 
 // Auto-initialize when DOM is ready

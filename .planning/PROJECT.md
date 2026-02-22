@@ -1,12 +1,12 @@
-# TryOnPlugin
+# Muse Hair Pro Virtual Try-On
 
 ## What This Is
 
-A virtual try-on widget for e-commerce stores selling wearable products. Store owners embed a JavaScript snippet on their product pages, adding a "Try this" button next to "Add to Cart." Shoppers click it, upload a full-body photo, and see an AI-generated image of themselves wearing the product — powered by NanoBana Pro API.
+A virtual try-on widget for Muse Hair Pro's Shopify store that lets customers visualize hair extensions on themselves before purchasing. Customers select a shade, length, and texture, upload or capture a photo, and see an AI-generated image of themselves wearing the hair extensions — powered by Google Gemini.
 
 ## Core Value
 
-Let shoppers visualize products on themselves before buying — reducing purchase hesitation and returns.
+Let customers see how hair extensions will look on them before buying — reducing purchase hesitation, minimizing shade-matching returns, and increasing confidence in online hair extension purchases.
 
 ## Requirements
 
@@ -16,46 +16,55 @@ Let shoppers visualize products on themselves before buying — reducing purchas
 
 ### Active
 
-- [ ] Embeddable JS widget that works on any website (Shopify, WooCommerce, custom)
-- [ ] "Try this" button that opens try-on interface
-- [ ] Photo upload flow for user's full-body image
-- [ ] Integration with NanoBana Pro API for try-on generation
-- [ ] Display generated try-on image to user
-- [ ] "Add to cart" action from try-on view
-- [ ] "Try another product" flow (reuse uploaded photo)
-- [ ] Close/dismiss functionality
-- [ ] Product image passed via button data attribute
+- [ ] Embeddable JS widget for Muse Hair Pro's Shopify store
+- [ ] Shade picker with color swatches and shade names
+- [ ] Length selector (14", 18", 22", 26")
+- [ ] Texture toggle (straight, wavy, curly)
+- [ ] Photo upload flow (file picker, drag-and-drop)
+- [ ] Live camera capture (WebRTC snapshot)
+- [ ] Gemini AI hair extension try-on generation
+- [ ] Before/after comparison view
+- [ ] Download result image
+- [ ] Share with stylist (email/link)
+- [ ] Add to Shopify cart with selected variant
+- [ ] Admin panel for managing shade catalog, lengths, and textures
+- [ ] Mobile-responsive design
 
 ### Out of Scope
 
-- Live camera AR / real-time try-on — complexity, focus on photo upload first
-- Save/share to social — not needed for v1 validation
-- Monetization/billing — free while validating product-market fit
-- Platform-specific apps (Shopify App Store, WooCommerce plugin) — JS snippet works everywhere, apps come later
-- User accounts/login — keep it frictionless
+- Multi-tenant SaaS / serving other stores — single-store for Muse Hair Pro only
+- Billing/monetization — built for one client
+- Non-Shopify platforms — Shopify only
+- Real-time AR / live video try-on — snapshot-based only
+- User accounts/login — keep it frictionless for customers
+- Wig try-on — hair extensions only
+- Automated shade matching via AI — manual selection by customer
 
 ## Context
 
-- **Integration approach:** Universal JS snippet that store owners add to their site. Platform-specific wrappers (Shopify app, WP plugin) deferred to later.
-- **Product data:** Store provides product image URL via button data attribute (`data-tryon-image`)
-- **Try-on tech:** Using NanoBana Pro API for image generation (researched, not yet integrated)
-- **Target customers:** E-commerce stores selling wearables (clothing, shoes, watches, accessories)
-- **Business model:** Free during validation phase
+- **Integration approach:** Shopify script tag embed on Muse Hair Pro's product pages
+- **Product data:** Shade, length, and texture options loaded from backend API; mapped to Shopify variants for cart
+- **Try-on tech:** Google Gemini for image generation with hair extension-specific prompts
+- **Target customers:** Women shopping for hair extensions online at Muse Hair Pro
+- **Business model:** Custom tool for Muse Hair Pro (not SaaS)
 
 ## Constraints
 
-- **API dependency**: NanoBana Pro API — core functionality depends on this external service
-- **Cross-platform**: Must work on any website regardless of tech stack (vanilla JS, no framework lock-in for widget)
-- **Product images**: Quality of try-on depends on clean product images from stores
+- **API dependency:** Google Gemini API — core try-on generation depends on this
+- **Shopify-specific:** Widget must integrate with Shopify's theme system and AJAX Cart API
+- **Hair realism:** AI output quality depends on prompt engineering for natural-looking hair across different skin tones, hair colors, and lighting conditions
+- **Shade accuracy:** Color representation must be consistent between shade picker swatches and AI-generated results
 
 ## Key Decisions
 
-| Decision | Rationale | Outcome |
-|----------|-----------|---------|
-| Photo upload over live AR | More achievable for v1, still compelling UX | — Pending |
-| Universal JS snippet over platform apps | Works everywhere, faster to ship, apps can wrap it later | — Pending |
-| NanoBana Pro API for try-on | Existing API handles the hard AI problem | — Pending |
-| All wearables vs single category | User wants broad applicability, API supports it | — Pending |
+| Decision | Rationale | Status |
+|----------|-----------|--------|
+| Gemini AI over NanoBana Pro | Already integrated; supports image generation with prompts; can be tuned for hair | Confirmed |
+| Single-store over multi-tenant | Reduces complexity; built specifically for Muse Hair Pro's needs | Confirmed |
+| Shopify-only over universal embed | Focused integration with Shopify Cart API and theme system | Confirmed |
+| Snapshot camera over real-time AR | Much simpler; WebRTC snapshot is sufficient for hair visualization | Confirmed |
+| Manual shade selection over auto-match | Simpler UX; customers know what shade they want; avoids AI shade-matching errors | Confirmed |
+| Hair extensions only (no wigs) | Focused scope; different visualization approach needed for wigs | Confirmed |
 
 ---
-*Last updated: 2025-01-18 after initialization*
+*Last updated: 2026-02-22 after pivot to Muse Hair Pro*

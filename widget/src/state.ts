@@ -1,18 +1,48 @@
-export type View = 'closed' | 'consent' | 'upload' | 'processing' | 'result' | 'error';
+export type View = 'closed' | 'consent' | 'selectors' | 'upload' | 'processing' | 'result' | 'error';
+
+export type Shade = {
+  id: string;
+  name: string;
+  hexColor: string;
+  shopifyVariantId?: string | null;
+};
+
+export type Length = {
+  id: string;
+  label: string;
+  inches: number;
+  bodyLandmark: string;
+};
+
+export type Texture = {
+  id: string;
+  name: string;
+};
 
 export type TryOnResult = {
   imageBase64: string;
   mimeType: string;
 };
 
+export type Catalog = {
+  shades: Shade[];
+  lengths: Length[];
+  textures: Texture[];
+  loaded: boolean;
+};
+
 export type State = {
   view: View;
   userPhoto: File | null;
-  productImageUrl: string;
-  productId?: string;
+  originalImage: string | null; // data URL of user's original photo
+  selectedShade: Shade | null;
+  selectedLength: Length | null;
+  selectedTexture: Texture | null;
+  catalog: Catalog;
   result: TryOnResult | null;
   error: string | null;
   progress: string;
+  productId?: string;
 };
 
 type Listener = (state: State) => void;
@@ -20,11 +50,15 @@ type Listener = (state: State) => void;
 const initialState: State = {
   view: 'closed',
   userPhoto: null,
-  productImageUrl: '',
-  productId: undefined,
+  originalImage: null,
+  selectedShade: null,
+  selectedLength: null,
+  selectedTexture: null,
+  catalog: { shades: [], lengths: [], textures: [], loaded: false },
   result: null,
   error: null,
-  progress: ''
+  progress: '',
+  productId: undefined,
 };
 
 let state: State = { ...initialState };
@@ -49,15 +83,14 @@ export function subscribe(listener: Listener): () => void {
   return () => listeners.delete(listener);
 }
 
-export function openWidget(productImageUrl: string, productId?: string): void {
+export function openWidget(productId?: string): void {
   const hasConsent = localStorage.getItem('tryon-consent') === 'true';
   setState({
     view: hasConsent ? 'upload' : 'consent',
-    productImageUrl,
     productId,
     result: null,
     error: null,
-    progress: ''
+    progress: '',
   });
 }
 
@@ -96,4 +129,8 @@ export function setError(error: string): void {
 
 export function retryWithSamePhoto(): void {
   setState({ view: 'upload', error: null, result: null });
+}
+
+export function tryAnotherShade(): void {
+  setState({ view: 'selectors', error: null, result: null, selectedShade: null });
 }

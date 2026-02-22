@@ -1,5 +1,5 @@
-// Prisma schema for TryOnPlugin multi-tenant SaaS
-// Database: PostgreSQL (Neon serverless)
+// Prisma schema for Muse Hair Pro Virtual Try-On
+// Database: PostgreSQL (Supabase)
 
 generator client {
   provider = "prisma-client-js"
@@ -11,71 +11,45 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-model Store {
-  id               String     @id @default(cuid())
-  name             String
-  email            String     @unique
-  domain           String
-  allowedDomains   String[]
-  planId           String     @default("free")
-  stripeCustomerId String?
-  monthlyQuota     Int        @default(100)
-  usedQuota        Int        @default(0)
-  quotaResetAt     DateTime   @default(now())
-  status           String     @default("active") // active, suspended, cancelled
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
-  apiKeys          ApiKey[]
-  usageLogs        UsageLog[]
+model Shade {
+  id               String   @id @default(cuid())
+  name             String   // e.g., "Jet Black", "Honey Blonde"
+  hexColor         String   // e.g., "#1B1B1B"
+  displayOrder     Int      @default(0)
+  shopifyVariantId String?  // Maps to Shopify variant for cart
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  @@index([email])
-  @@index([stripeCustomerId])
-  @@index([status])
+  @@index([active, displayOrder])
 }
 
-model ApiKey {
-  id         String    @id @default(cuid())
-  storeId    String
-  store      Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  keyHash    String    @unique
-  keyPrefix  String    // First 12 chars for display: "tryon_live_xxxx..."
-  name       String    @default("Default")
-  isActive   Boolean   @default(true)
-  lastUsedAt DateTime?
-  createdAt  DateTime  @default(now())
+model Length {
+  id               String   @id @default(cuid())
+  label            String   // e.g., "14 inches"
+  inches           Int      // e.g., 14
+  bodyLandmark     String   // e.g., "shoulders", "mid-back", "waist", "below waist"
+  displayOrder     Int      @default(0)
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  @@index([storeId])
-  @@index([keyHash])
+  @@index([active, displayOrder])
 }
 
-model UsageLog {
-  id            String   @id @default(cuid())
-  storeId       String
-  store         Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  eventType     String   // tryon, classify
-  status        String   // success, error, quota_exceeded, rate_limited
-  processingMs  Int?
-  errorCode     String?
-  billingPeriod String   // YYYY-MM format
-  metadata      Json?    // Additional context (product category, etc.)
-  createdAt     DateTime @default(now())
+model Texture {
+  id           String   @id @default(cuid())
+  name         String   // e.g., "Straight", "Wavy", "Curly"
+  displayOrder Int      @default(0)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  @@index([storeId])
-  @@index([billingPeriod])
-  @@index([createdAt])
-  @@index([storeId, billingPeriod])
+  @@index([active, displayOrder])
 }
 
-// Plan configuration (could be in code, but useful for reference)
-model Plan {
-  id              String @id
-  name            String
-  priceMonthly    Int    // cents
-  monthlyQuota    Int
-  requestsPerMin  Int
-  dailyLimit      Int
-  overagePrice    Int    // cents per overage request
-  stripePriceId   String?
-
-  @@map("plans")
+model AdminUser {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
 }
