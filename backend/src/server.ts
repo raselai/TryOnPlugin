@@ -124,13 +124,14 @@ async function analyzePhoto(aiClient: GoogleGenAI, imageBuffer: Buffer, mimeType
             `4. "reason": If not suitable, a brief user-friendly reason why`,
             ``,
             `Hair extensions are NOT suitable when:`,
+            `- The person's hair is too short to cover and conceal clip-in wefts (needs at least chin-length or a few inches below the ears)`,
             `- The person has very short or buzzcut male hair (extensions cannot blend naturally)`,
             `- No person or face is clearly visible in the photo`,
             `- The photo is too dark or blurry to process`,
             ``,
             `Hair extensions ARE suitable when:`,
-            `- The person has medium to long hair of any gender`,
-            `- The person has short hair but long enough to blend (at least a few inches)`,
+            `- The person has medium to long hair of any gender (enough length to hide clip-in attachment points)`,
+            `- The person has short hair but long enough to cover wefts (at least chin-length)`,
             `- Men with longer hairstyles (man buns, shoulder-length, etc.)`,
             ``,
             `Respond with ONLY valid JSON: {"gender":"...","currentHairLength":"...","suitable":true/false,"reason":"..."}`,
@@ -175,13 +176,20 @@ function hairExtensionPrompt(
     : [
         `GENDER-SPECIFIC STYLING (FEMALE):`,
         `- Style the extensions in a natural, feminine way appropriate for the person's overall look.`,
-        `- The extensions should add length and volume that complements their existing style.`,
+        `- Extensions should add length and thickness from the mid-lengths down to the ends.`,
+        `- The crown and top layers remain the person's natural hair — extensions are underneath, not on top.`,
       ].join("\n");
 
   return [
     `You are a professional hair stylist photo editor. Edit this photo to add realistic clip-in hair extensions.`,
     ``,
     `CRITICAL RULE: You are ONLY adding hair extensions to this person's existing hair. You are NOT replacing their hair. You are NOT changing their gender appearance. The person must still look like themselves, just with longer/thicker hair.`,
+    ``,
+    `HOW CLIP-IN EXTENSIONS WORK (FOLLOW THIS EXACTLY):`,
+    `- Extensions clip in UNDERNEATH the top layers of hair, NOT on top.`,
+    `- The person's own hair remains fully visible on the surface, crown, and top layers.`,
+    `- Extensions add length BELOW where the natural hair ends, and add thickness/fullness to the lower half.`,
+    `- The top and mid-lengths of their natural hair should look unchanged — extensions only affect the bottom half and ends.`,
     ``,
     genderGuidance,
     ``,
@@ -195,13 +203,17 @@ function hairExtensionPrompt(
     `- Texture: ${textureName}`,
     ``,
     `BLENDING REQUIREMENTS:`,
-    `- Blend the extensions seamlessly with the person's existing hair — the transition point should be invisible.`,
-    `- Add subtle highlights and lowlights near the blend zone to create a natural color transition.`,
+    `- The blend zone is where natural hair transitions into extension length — the customer's own hair covers and conceals the attachment points underneath.`,
+    `- Extensions should peek from underneath the natural hair layers, adding density at the mid-lengths and visible length past the natural ends.`,
+    `- Allow slight color variation between the natural hair and extensions — a perfect match looks uncanny; real extensions have subtle shade differences that look authentic.`,
     `- The extension color should interact realistically with the ambient lighting in the photo.`,
     ``,
     `STYLING REQUIREMENTS:`,
     `${textureDetail}`,
     `- The hair should have natural movement and gravity — it should drape and fall realistically.`,
+    `- Extensions add weight to the lower half, making the ends slightly fuller and heavier than the natural roots and mid-lengths.`,
+    `- The overall silhouette should be natural hair on top graduating to thicker, longer hair at the bottom.`,
+    `- Extensions follow the same part, hair direction, and natural fall as the person's own hair.`,
     `- Add subtle shadows where the hair rests on the shoulders and neck.`,
     ``,
     `PRESERVATION REQUIREMENTS (CRITICAL):`,
@@ -218,7 +230,8 @@ function hairExtensionPrompt(
 registerCatalogRoutes(app);
 registerAdminRoutes(app);
 
-// Health check (public)
+// Root / Health check (public)
+app.get("/", async () => ({ name: "Muse Hair Pro API", ok: true, timestamp: new Date().toISOString() }));
 app.get("/health", async () => ({ ok: true, timestamp: new Date().toISOString() }));
 
 // Hair extension try-on endpoint (public — single store, no auth needed)
